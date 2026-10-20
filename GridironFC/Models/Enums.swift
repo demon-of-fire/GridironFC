@@ -1054,7 +1054,6 @@ public enum SeasonPhase: String, Codable, CaseIterable, Identifiable, Hashable {
 public enum GameMode: String, Codable, CaseIterable, Identifiable, Hashable {
     case createClub
     case manageClub
-    case createPlayer
     case unemployed
     
     public var id: String { rawValue }
@@ -1063,7 +1062,6 @@ public enum GameMode: String, Codable, CaseIterable, Identifiable, Hashable {
         switch self {
         case .createClub: return "Create a Club"
         case .manageClub: return "Manage Existing Club"
-        case .createPlayer: return "Create a Player"
         case .unemployed: return "Start Unemployed"
         }
     }
@@ -1074,8 +1072,6 @@ public enum GameMode: String, Codable, CaseIterable, Identifiable, Hashable {
             return "Build a club from scratch, customize your stadium and badge, and climb from League Two."
         case .manageClub:
             return "Take charge of an existing English club with real squads and established expectations."
-        case .createPlayer:
-            return "Guide a single player's career through European football."
         case .unemployed:
             return "Begin without a club and wait for job offers. Work your way up from the bottom."
         }
@@ -1092,6 +1088,7 @@ public enum NewsCategory: String, Codable, CaseIterable, Identifiable, Hashable 
     case promotion
     case relegation
     case award
+    case board
     case general
     
     public var id: String { rawValue }
@@ -1105,6 +1102,7 @@ public enum NewsCategory: String, Codable, CaseIterable, Identifiable, Hashable 
         case .promotion: return "Promotion"
         case .relegation: return "Relegation"
         case .award: return "Awards & Accolades"
+        case .board: return "Board & Management"
         case .general: return "Club News"
         }
     }
@@ -1118,6 +1116,7 @@ public enum NewsCategory: String, Codable, CaseIterable, Identifiable, Hashable 
         case .promotion: return "arrow.up.circle.fill"
         case .relegation: return "arrow.down.circle.fill"
         case .award: return "trophy.fill"
+        case .board: return "person.badge.shield.checkmark.fill"
         case .general: return "newspaper.fill"
         }
     }
@@ -1155,7 +1154,6 @@ public enum AppScreen: Hashable, Codable {
     case mainMenu
     case clubCreation
     case clubSelect
-    case playerCreation
     case managerCreation
     case jobOffers
     case managerProfile
@@ -1178,6 +1176,7 @@ public enum AppScreen: Hashable, Codable {
     case mailbox
     case matchHistory
     case europeanCompetitions
+    case youthAcademy
     case playerDetail(UUID)
     
     private enum CodingKeys: String, CodingKey {
@@ -1194,8 +1193,6 @@ public enum AppScreen: Hashable, Codable {
             try container.encode("clubCreation", forKey: .screenType)
         case .clubSelect:
             try container.encode("clubSelect", forKey: .screenType)
-        case .playerCreation:
-            try container.encode("playerCreation", forKey: .screenType)
         case .managerCreation:
             try container.encode("managerCreation", forKey: .screenType)
         case .jobOffers:
@@ -1240,6 +1237,8 @@ public enum AppScreen: Hashable, Codable {
             try container.encode("matchHistory", forKey: .screenType)
         case .europeanCompetitions:
             try container.encode("europeanCompetitions", forKey: .screenType)
+        case .youthAcademy:
+            try container.encode("youthAcademy", forKey: .screenType)
         case .playerDetail(let uuid):
             try container.encode("playerDetail", forKey: .screenType)
             try container.encode(uuid, forKey: .playerId)
@@ -1253,7 +1252,6 @@ public enum AppScreen: Hashable, Codable {
         case "mainMenu": self = .mainMenu
         case "clubCreation": self = .clubCreation
         case "clubSelect": self = .clubSelect
-        case "playerCreation": self = .playerCreation
         case "managerCreation": self = .managerCreation
         case "jobOffers": self = .jobOffers
         case "managerProfile": self = .managerProfile
@@ -1276,6 +1274,7 @@ public enum AppScreen: Hashable, Codable {
         case "mailbox": self = .mailbox
         case "matchHistory": self = .matchHistory
         case "europeanCompetitions": self = .europeanCompetitions
+        case "youthAcademy": self = .youthAcademy
         case "playerDetail":
             let uuid = try container.decode(UUID.self, forKey: .playerId)
             self = .playerDetail(uuid)

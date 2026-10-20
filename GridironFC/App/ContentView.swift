@@ -24,8 +24,6 @@ public struct ContentView: View {
                 ClubCreationView()
             case .clubSelect:
                 ClubSelectView()
-            case .playerCreation:
-                PlayerCreationView()
             case .managerCreation:
                 ManagerCreationView()
             case .jobOffers:
@@ -50,6 +48,8 @@ public struct ContentView: View {
                 MatchHistoryView()
             case .europeanCompetitions:
                 EuropeanCompetitionsView()
+            case .youthAcademy:
+                YouthAcademyView()
             case .playerDetail(let playerId):
                 PlayerDetailView(playerId: playerId)
             }
@@ -124,6 +124,7 @@ public struct InGameTabView: View {
                 .tabItem {
                     Label(TabDestination.inbox.rawValue, systemImage: TabDestination.inbox.iconName)
                 }
+                .badge(gameState.unreadMailCount)
                 .tag(TabDestination.inbox)
         }
         .navigationTitle(navigationTitleForTab(selectedTab))
@@ -153,6 +154,11 @@ public struct InGameTabView: View {
                         gameState.currentScreen = .europeanCompetitions
                     } label: {
                         Label("European Competitions", systemImage: "globe.europe.africa")
+                    }
+                    Button {
+                        gameState.currentScreen = .youthAcademy
+                    } label: {
+                        Label("Youth Academy", systemImage: "figure.and.child.holdinghands")
                     }
                     Button {
                         gameState.currentScreen = .managerProfile
@@ -324,7 +330,6 @@ public struct GameModeCard: View {
         switch mode {
         case .createClub: return "shield.lefthalf.filled"
         case .manageClub: return "person.badge.shield.checkmark.fill"
-        case .createPlayer: return "figure.soccer"
         case .unemployed: return "briefcase.fill"
         }
     }
@@ -525,148 +530,6 @@ public struct ClubSelectView: View {
     }
 }
 
-// MARK: - Player Creation Screen (Create a Player)
-
-public struct PlayerCreationView: View {
-    @Environment(GameState.self) private var gameState
-    
-    @State private var firstName = "Alex"
-    @State private var lastName = "Hunter"
-    @State private var nationality = "England"
-    @State private var age = 18
-    @State private var selectedPosition: Position = .ST
-    @State private var preferredFoot: Foot = .right
-    @State private var height = 180
-    @State private var weight = 75
-    @State private var selectedClubId: UUID?
-    
-    private var clubsSorted: [Club] {
-        gameState.clubs.sorted {
-            if $0.leagueTier != $1.leagueTier { return $0.leagueTier < $1.leagueTier }
-            return $0.name < $1.name
-        }
-    }
-    
-    private var previewPlayer: Player {
-        let attrs = DataLoader.generateAttributes(
-            overall: startingOverall,
-            position: selectedPosition
-        )
-        return Player(
-            firstName: firstName.isEmpty ? "New" : firstName,
-            lastName: lastName.isEmpty ? "Player" : lastName,
-            nationality: nationality,
-            age: age,
-            height: height,
-            weight: weight,
-            preferredFoot: preferredFoot,
-            positions: [selectedPosition],
-            attributes: attrs,
-            overall: startingOverall,
-            potential: max(startingOverall + 8, selectedPosition == .GK ? 70 : 78)
-        )
-    }
-    
-    private var startingOverall: Int {
-        // Young players begin modest and grow; GK just below outfield debutants.
-        let base = selectedPosition == .GK ? 60 : 62
-        return min(72, base + max(0, age - 18))
-    }
-    
-    public var body: some View {
-        Form {
-            Section(header: Text("Player Identity")) {
-                TextField("First Name", text: $firstName)
-                TextField("Last Name", text: $lastName)
-                TextField("Nationality", text: $nationality)
-            }
-            
-            Section(header: Text("Profile")) {
-                Stepper("Age: \(age)", value: $age, in: 16...40)
-                Picker("Position", selection: $selectedPosition) {
-                    ForEach(Position.allCases) { pos in
-                        Text("\(pos.abbreviation) — \(pos.displayName)").tag(pos)
-                    }
-                }
-                Picker("Preferred Foot", selection: $preferredFoot) {
-                    ForEach(Foot.allCases) { foot in
-                        Text(foot.displayName).tag(foot)
-                    }
-                }
-                Stepper("Height: \(height) cm", value: $height, in: 160...205)
-                Stepper("Weight: \(weight) kg", value: $weight, in: 55...105)
-            }
-            
-            Section(header: Text("Starting Club")) {
-                Picker("Club", selection: $selectedClubId) {
-                    Text("Select Club").tag(nil as UUID?)
-                    ForEach(clubsSorted) { club in
-                        Text("\(club.shortName) — \(club.name)").tag(club.id as UUID?)
-                    }
-                }
-                .accessibilityLabel("Starting club selection")
-            }
-            
-            Section(header: Text("Preview")) {
-                HStack(spacing: 16) {
-                    FaceView(player: previewPlayer, size: 64, style: .full)
-                        .frame(width: 64, height: 64)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(previewPlayer.fullName)
-                            .font(.headline)
-                        Text("\(previewPlayer.primaryPosition.displayName) • Age \(previewPlayer.age)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text("Overall \(previewPlayer.overall) • Potential \(previewPlayer.potential)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            
-            Section {
-                Button(action: launchCareer) {
-                    Text("Begin Player Career")
-                        .fontWeight(.bold)
-                        .frame(maxWidth: .infinity)
-                }
-                .disabled(selectedClubId == nil || firstName.trimmingCharacters(in: .whitespaces).isEmpty)
-                .accessibilityLabel("Begin player career")
-                .accessibilityHint("Creates your player and makes their club your managed team")
-            }
-        }
-        .navigationTitle("Create a Player")
-        .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            if selectedClubId == nil {
-                selectedClubId = gameState.clubs.first(where: { $0.leagueTier == .leagueTwo })?.id
-                    ?? gameState.clubs.first?.id
-            }
-        }
-    }
-    
-    private func launchCareer() {
-        guard let clubId = selectedClubId,
-              let clubIdx = gameState.clubs.firstIndex(where: { $0.id == clubId }) else {
-            return
-        }
-        
-        let player = previewPlayer
-        gameState.clubs[clubIdx].addPlayer(player)
-        _ = gameState.takeOverExistingClub(clubId: clubId)
-        gameState.userPlayerId = player.id
-        
-        gameState.addNews(
-            headline: "\(player.fullName) Begins Professional Career",
-            body: "\(player.fullName), aged \(player.age), has signed for \(gameState.clubs[clubIdx].name). You now guide both the club and the player's development.",
-            category: .transfer
-        )
-        
-        try? SaveManager.shared.autoSave(gameState: gameState)
-        gameState.currentScreen = .dashboard
-    }
-}
-
 // MARK: - Manager Creation Screen
 
 public struct ManagerCreationView: View {
@@ -704,7 +567,6 @@ public struct ManagerCreationView: View {
         case .unemployed: return 15
         case .createClub: return 10
         case .manageClub: return 40
-        case .createPlayer: return 30
         }
     }
 
@@ -786,8 +648,6 @@ public struct ManagerCreationView: View {
             gameState.currentScreen = .clubCreation
         case .manageClub:
             gameState.currentScreen = .clubSelect
-        case .createPlayer:
-            gameState.currentScreen = .playerCreation
         case .unemployed:
             // No club; generate an initial slate of job offers and drop the user
             // straight into the Job Offers screen.
@@ -1155,37 +1015,6 @@ public struct DashboardView: View {
                     .padding()
                     .background(Color(UIColor.secondarySystemGroupedBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 16))
-                }
-                
-                // My Player Card (Create a Player mode)
-                if let playerId = gameState.userPlayerId,
-                   let lookup = gameState.player(withId: playerId) {
-                    let player = lookup.player
-                    NavigationLink(destination: PlayerDetailView(playerId: player.id)) {
-                        HStack(spacing: 14) {
-                            FaceView(player: player, size: 48, style: .full)
-                                .frame(width: 48, height: 56)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("My Player")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Text(player.fullName)
-                                    .font(.headline)
-                                Text("Avg Rating \(String(format: "%.2f", player.seasonStats.averageRating)) • \(player.seasonStats.goals) goals")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Text("\(player.overall)")
-                                .font(.title3)
-                                .fontWeight(.bold)
-                        }
-                        .padding()
-                        .background(Color(UIColor.secondarySystemGroupedBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("My player \(player.fullName), overall \(player.overall)")
                 }
                 
                 // Club Finances Quick Snapshot
@@ -2529,5 +2358,140 @@ private struct EuropeanFixtureRow: View {
             }
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: - Youth Academy Screen
+
+public struct YouthAcademyView: View {
+    @Environment(GameState.self) private var gameState
+    @State private var outcomeMessage: String?
+    @State private var showOutcome = false
+
+    public var body: some View {
+        List {
+            if let club = gameState.userClub {
+                Section(header: Text("Academy Overview")) {
+                    HStack {
+                        Text("Academy Level")
+                        Spacer()
+                        Text("\(club.youthAcademyLevel) / 5")
+                            .fontWeight(.bold)
+                    }
+                    HStack {
+                        Text("Prospects")
+                        Spacer()
+                        Text("\(club.academyProspects.count)")
+                            .fontWeight(.bold)
+                    }
+                    Text("Prospects develop each season and a new intake arrives every summer. Promote promising youngsters to the senior squad.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if club.academyProspects.isEmpty {
+                    Section {
+                        Text("No prospects in the academy yet. A new intake arrives at the start of next season.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Section(header: Text("Prospects")) {
+                        ForEach(club.academyProspects.sorted { $0.potential > $1.potential }) { prospect in
+                            prospectRow(prospect, club: club)
+                        }
+                    }
+                }
+            } else {
+                Text("Take charge of a club to manage its youth academy.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("Youth Academy")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert("Academy", isPresented: $showOutcome) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(outcomeMessage ?? "")
+        }
+    }
+
+    private func prospectRow(_ prospect: Player, club: Club) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                FaceView(player: prospect, size: 40)
+                Text(prospect.primaryPosition.abbreviation)
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .frame(width: 38, height: 26)
+                    .background(prospect.primaryPosition.category.accentColor.opacity(0.2))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(prospect.fullName)
+                        .font(.body)
+                        .fontWeight(.medium)
+                    Text("Age \(prospect.age) • \(prospect.nationality)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(prospect.overall)")
+                        .font(.headline)
+                        .fontWeight(.bold)
+                    Text("Pot \(prospect.potential)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            HStack(spacing: 10) {
+                Button {
+                    promote(prospect)
+                } label: {
+                    Label("Promote", systemImage: "arrow.up.circle")
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+
+                Button(role: .destructive) {
+                    release(prospect)
+                } label: {
+                    Label("Release", systemImage: "trash")
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(.leading, 52)
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(prospect.fullName), \(prospect.primaryPosition.displayName), age \(prospect.age), overall \(prospect.overall), potential \(prospect.potential)")
+    }
+
+    private func promote(_ prospect: Player) {
+        guard let clubIdx = gameState.clubs.firstIndex(where: { $0.isUserClub }) else { return }
+        if let promoted = gameState.clubs[clubIdx].promoteProspect(withId: prospect.id) {
+            gameState.addNews(
+                headline: "\(promoted.fullName) Promoted to First Team",
+                body: "Academy graduate \(promoted.fullName) (age \(promoted.age), \(promoted.primaryPosition.displayName)) has been promoted to the senior squad.",
+                category: .board,
+                sender: "Head of Youth Development"
+            )
+            outcomeMessage = "\(promoted.fullName) has joined the senior squad."
+        } else {
+            outcomeMessage = "Could not promote that prospect."
+        }
+        showOutcome = true
+        try? SaveManager.shared.autoSave(gameState: gameState)
+    }
+
+    private func release(_ prospect: Player) {
+        guard let clubIdx = gameState.clubs.firstIndex(where: { $0.isUserClub }) else { return }
+        if gameState.clubs[clubIdx].releaseProspect(withId: prospect.id) != nil {
+            outcomeMessage = "\(prospect.fullName) has been released from the academy."
+        }
+        showOutcome = true
+        try? SaveManager.shared.autoSave(gameState: gameState)
     }
 }

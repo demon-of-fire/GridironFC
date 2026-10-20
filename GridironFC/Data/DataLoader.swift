@@ -504,6 +504,59 @@ public final class DataLoader {
         return squad
     }
     
+    // MARK: - Youth Academy Prospect Generator
+
+    /// Generates a batch of youth academy prospects (aged 15-18) whose quality
+    /// scales with the club's academy level, reputation and tier.
+    public static func generateAcademyProspects(count: Int, club: Club) -> [Player] {
+        let firstNames = ["James", "Jack", "Harry", "Oliver", "George", "Noah", "Charlie", "Jacob", "Alfie", "Freddie", "Oscar", "Leo", "Logan", "Archie", "Theo", "Thomas", "Arthur", "Mason", "Henry", "Lucas", "Liam", "Ethan", "Kai", "Reece", "Finley", "Blake"]
+        let lastNames = ["Smith", "Jones", "Taylor", "Brown", "Williams", "Wilson", "Johnson", "Davies", "Robinson", "Wright", "Thompson", "Evans", "Walker", "White", "Roberts", "Green", "Hall", "Wood", "Jackson", "Clarke", "Patel", "Murphy", "Hughes", "Okafor", "Mensah", "Doyle"]
+        let nationalities = ["England", "Spain", "France", "Portugal", "Brazil", "Netherlands", "Germany", "Italy", "Argentina", "Belgium"]
+
+        let developmentPositions: [Position] = [.GK, .CB, .LB, .RB, .CDM, .CM, .CAM, .LM, .RM, .LW, .RW, .ST, .CB, .CM, .ST]
+
+        // Academy level (1-5) and reputation drive the ceiling.
+        let levelBonus = (club.youthAcademyLevel - 3) * 3
+        let repBonus = (club.reputation - 55) / 6
+        let tierBase: Int
+        switch club.leagueTier.level {
+        case 1: tierBase = 52
+        case 2: tierBase = 48
+        case 3: tierBase = 44
+        default: tierBase = 40
+        }
+        let base = tierBase + levelBonus + repBonus
+
+        var prospects: [Player] = []
+        for _ in 0..<count {
+            let pos = developmentPositions.randomElement() ?? .CM
+            let age = Int.random(in: 15...18)
+            let variance = Int.random(in: -3...4)
+            let overall = max(35, min(70, base + variance))
+            // Potential scales with youth-development investment and youth.
+            let potBonus = Int.random(in: 6...18) + (club.youthAcademyLevel - 2) * 3
+            let potential = max(overall + 5, min(88, overall + potBonus))
+
+            let attrs = generateAttributes(overall: overall, position: pos)
+            let player = Player(
+                firstName: firstNames.randomElement() ?? "Alex",
+                lastName: lastNames.randomElement() ?? "Hunter",
+                nationality: nationalities.randomElement() ?? "England",
+                age: age,
+                height: pos == .GK ? Int.random(in: 180...194) : Int.random(in: 165...188),
+                weight: pos == .GK ? Int.random(in: 72...88) : Int.random(in: 58...78),
+                preferredFoot: Double.random(in: 0...1) < 0.25 ? .left : .right,
+                positions: [pos],
+                attributes: attrs,
+                overall: overall,
+                potential: potential,
+                contract: Contract(wage: max(150, overall * 12), yearsRemaining: 3)
+            )
+            prospects.append(player)
+        }
+        return prospects
+    }
+
     // MARK: - Built-in Programmatic Tier Catalogs
     
     private static func buildFallbackTier(tier: LeagueTier, name: String) -> ([Club], League) {

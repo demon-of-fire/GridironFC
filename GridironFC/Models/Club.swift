@@ -26,6 +26,9 @@ public struct Club: Codable, Identifiable, Hashable {
     
     public var players: [Player]
     public var manager: String
+
+    // Youth Academy Prospects (aged 15-18, develop before promotion to the senior squad)
+    public var academyProspects: [Player]
     
     // Financial Standing
     public var finances: ClubFinances
@@ -60,6 +63,7 @@ public struct Club: Codable, Identifiable, Hashable {
         isUserClub: Bool = false,
         players: [Player] = [],
         manager: String = "Manager",
+        academyProspects: [Player] = [],
         finances: ClubFinances? = nil,
         staff: [StaffMember] = [],
         trainingFacilityLevel: Int = 2,
@@ -81,6 +85,7 @@ public struct Club: Codable, Identifiable, Hashable {
         self.isUserClub = isUserClub
         self.players = players
         self.manager = manager
+        self.academyProspects = academyProspects
         
         let initialFinances = finances ?? ClubFinances.defaultFor(tier: leagueTier)
         self.finances = initialFinances
@@ -186,6 +191,28 @@ public struct Club: Codable, Identifiable, Hashable {
         }
     }
     
+    // MARK: - Youth Academy
+
+    public mutating func addProspect(_ prospect: Player) {
+        if !academyProspects.contains(where: { $0.id == prospect.id }) {
+            academyProspects.append(prospect)
+        }
+    }
+
+    @discardableResult
+    public mutating func promoteProspect(withId id: UUID) -> Player? {
+        guard let idx = academyProspects.firstIndex(where: { $0.id == id }) else { return nil }
+        let promoted = academyProspects.remove(at: idx)
+        addPlayer(promoted)
+        return promoted
+    }
+
+    @discardableResult
+    public mutating func releaseProspect(withId id: UUID) -> Player? {
+        guard let idx = academyProspects.firstIndex(where: { $0.id == id }) else { return nil }
+        return academyProspects.remove(at: idx)
+    }
+
     @discardableResult
     public mutating func removePlayer(withId id: UUID) -> Player? {
         guard let idx = players.firstIndex(where: { $0.id == id }) else { return nil }
@@ -277,6 +304,41 @@ public struct Club: Codable, Identifiable, Hashable {
         if tactics.startingXI.count < 11 {
             autoPickStartingXI()
         }
+    }
+
+    // MARK: - Codable (tolerant of saves predating the youth academy)
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, shortName, stadium, stadiumCapacity, city
+        case primaryColor, secondaryColor, leagueTier, reputation, isUserClub
+        case players, manager, academyProspects, finances, staff
+        case trainingFacilityLevel, youthAcademyLevel, medicalFacilityLevel
+        case tactics, seasonResults
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        shortName = try c.decode(String.self, forKey: .shortName)
+        stadium = try c.decode(String.self, forKey: .stadium)
+        stadiumCapacity = try c.decode(Int.self, forKey: .stadiumCapacity)
+        city = try c.decode(String.self, forKey: .city)
+        primaryColor = try c.decode(String.self, forKey: .primaryColor)
+        secondaryColor = try c.decode(String.self, forKey: .secondaryColor)
+        leagueTier = try c.decode(LeagueTier.self, forKey: .leagueTier)
+        reputation = try c.decode(Int.self, forKey: .reputation)
+        isUserClub = try c.decode(Bool.self, forKey: .isUserClub)
+        players = try c.decode([Player].self, forKey: .players)
+        manager = try c.decode(String.self, forKey: .manager)
+        academyProspects = try c.decodeIfPresent([Player].self, forKey: .academyProspects) ?? []
+        finances = try c.decode(ClubFinances.self, forKey: .finances)
+        staff = try c.decode([StaffMember].self, forKey: .staff)
+        trainingFacilityLevel = try c.decode(Int.self, forKey: .trainingFacilityLevel)
+        youthAcademyLevel = try c.decode(Int.self, forKey: .youthAcademyLevel)
+        medicalFacilityLevel = try c.decode(Int.self, forKey: .medicalFacilityLevel)
+        tactics = try c.decode(Tactics.self, forKey: .tactics)
+        seasonResults = try c.decode([MatchResult].self, forKey: .seasonResults)
     }
 }
 

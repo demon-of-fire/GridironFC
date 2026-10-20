@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Youth academy** — every club now runs a youth academy. Prospects (aged
+  15-18) develop toward their potential each season and a new intake arrives
+  every summer, with quality scaling by academy level, reputation and division.
+  Promote standouts to the senior squad or release them from the new
+  **Youth Academy** screen (overflow menu).
+- **Manager inbox** — correspondence is now addressed to the manager, with a
+  sender on every message (The Board, Chief Scout, Head of Youth Development,
+  Club Secretary). New **Board & Management** category, per-message read state,
+  an unread filter, a "Mark All Read" action, and an unread badge on the Inbox
+  tab. Taking over a club seeds a welcome letter and season objectives.
+
+### Removed
+
+- **Create a Player** career mode has been removed to keep the game focused on
+  club management.
+
 - **European competitions** — the UEFA Champions League, Europa League and
   Conference League now run in-game with their modern format: a single-table
   league phase (36 clubs, 8 matches each; 32/6 for the Conference League),

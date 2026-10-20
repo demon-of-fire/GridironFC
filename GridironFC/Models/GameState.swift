@@ -18,19 +18,42 @@ public struct NewsItem: Codable, Identifiable, Hashable {
     public var body: String
     public var date: String
     public var category: NewsCategory
-    
+    /// Who the correspondence is from (e.g. "The Board", "Agent", "Club Secretary").
+    public var sender: String
+    /// Whether the manager has opened this message.
+    public var isRead: Bool
+
     public init(
         id: UUID = UUID(),
         headline: String,
         body: String,
         date: String,
-        category: NewsCategory
+        category: NewsCategory,
+        sender: String = "Club News Desk",
+        isRead: Bool = false
     ) {
         self.id = id
         self.headline = headline
         self.body = body
         self.date = date
         self.category = category
+        self.sender = sender
+        self.isRead = isRead
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, headline, body, date, category, sender, isRead
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        headline = try c.decode(String.self, forKey: .headline)
+        body = try c.decode(String.self, forKey: .body)
+        date = try c.decode(String.self, forKey: .date)
+        category = try c.decode(NewsCategory.self, forKey: .category)
+        sender = try c.decodeIfPresent(String.self, forKey: .sender) ?? "Club News Desk"
+        isRead = try c.decodeIfPresent(Bool.self, forKey: .isRead) ?? false
     }
 }
 
@@ -45,7 +68,6 @@ public final class GameState: Codable {
     public var leagues: [League]
     public var season: Season
     public var userClubId: UUID?
-    public var userPlayerId: UUID?
     
     // Global Market & History
     public var freeAgents: [Player]
@@ -79,7 +101,6 @@ public final class GameState: Codable {
         leagues: [League] = [],
         season: Season = Season(),
         userClubId: UUID? = nil,
-        userPlayerId: UUID? = nil,
         freeAgents: [Player] = [],
         transferHistory: [TransferRecord] = [],
         pendingTransferOffers: [TransferOffer] = [],
@@ -99,7 +120,6 @@ public final class GameState: Codable {
         self.leagues = leagues
         self.season = season
         self.userClubId = userClubId
-        self.userPlayerId = userPlayerId
         self.freeAgents = freeAgents
         self.transferHistory = transferHistory
         self.pendingTransferOffers = pendingTransferOffers
@@ -595,6 +615,16 @@ public final class GameState: Codable {
     
     // MARK: - Free Agent Bootstrapping
     
+    /// Populates every club with an initial youth academy cohort. Idempotent:
+    /// clubs that already have prospects are skipped.
+    public func seedAcademies() {
+        for cIdx in 0..<clubs.count where clubs[cIdx].academyProspects.isEmpty {
+            let intake = max(2, min(5, clubs[cIdx].youthAcademyLevel + 1))
+            let prospects = DataLoader.generateAcademyProspects(count: intake, club: clubs[cIdx])
+            clubs[cIdx].academyProspects = prospects
+        }
+    }
+    
     /// Populates the free-agent market with a pool of unattached players so the
     /// user (and AI clubs) always have signings available from day one.
     public func seedFreeAgents(count: Int = 40) {
@@ -732,8 +762,10 @@ public final class GameState: Codable {
         addNews(
             headline: "\(userClub.name) Enters \(userClub.leagueTier.displayName)!",
             body: "\(userClub.name) has officially taken over at \(userClub.stadium).",
-            category: .general
+            category: .board,
+            sender: "The Board — \(userClub.name)"
         )
+        seedManagerInbox()
         
         return userClub
     }
@@ -752,27 +784,21 @@ public final class GameState: Codable {
         clubs[idx].ensureTacticalIntegrity()
         clubs[idx].manager = manager.fullName
         self.userClubId = clubId
+        seedAcademies()
         
         addNews(
             headline: "You Are Now the Manager of \(clubs[idx].name)!",
-            body: "The board at \(clubs[idx].name) have appointed you as first-team manager at \(clubs[idx].stadium).",
-            category: .general
+            body: "The board at \(clubs[idx].name) have appointed you as first-team manager at \(clubs[idx].stadium). Transfer budget: \(Player.formatCurrency(clubs[idx].finances.transferBudget)).",
+            category: .board,
+            sender: "The Board — \(clubs[idx].name)"
         )
-        addNews(
-            headline: "Board Objectives for \(season.year)",
-            body: "The board expect \(clubs[idx].name) to be competitive in the \(clubs[idx].leagueTier.displayName). Transfer budget: \(Player.formatCurrency(clubs[idx].finances.transferBudget)).",
-            category: .general
-        )
-        addNews(
-            headline: "Transfer Window Open",
-            body: "The transfer window is now open. Head to the Transfers tab and use Search & Sign Players to strengthen your squad.",
-            category: .transfer
-        )
+        seedManagerInbox()
         if !freeAgents.isEmpty {
             addNews(
                 headline: "\(freeAgents.count) Free Agents Available",
                 body: "Our scouts have identified \(freeAgents.count) unattached players. Several could improve the squad at no transfer cost.",
-                category: .transfer
+                category: .transfer,
+                sender: "Chief Scout"
             )
         }
         return clubs[idx]
@@ -860,6 +886,54 @@ public final class GameState: Codable {
             }
         }
         
+        // Youth academy: age and develop existing prospects, then perform a new
+        // intake whose size scales with the club's academy level.
+        for cIdx in 0..<clubs.count {
+            var club = clubs[cIdx]
+
+            // Age existing prospects; develop them toward their potential.
+            for pIdx in club.academyProspects.indices {
+                club.academyProspects[pIdx].age += 1
+                let ceiling = club.academyProspects[pIdx].potential
+                if club.academyProspects[pIdx].overall < ceiling {
+                    let growth = Int.random(in: 1...max(1, (ceiling - club.academyProspects[pIdx].overall)))
+                    club.academyProspects[pIdx].overall = min(ceiling, club.academyProspects[pIdx].overall + growth)
+                }
+            }
+
+            // Annual intake: 2-4 new prospects, more for better academies.
+            let intake = max(2, min(5, club.youthAcademyLevel + 1))
+            let newProspects = DataLoader.generateAcademyProspects(count: intake, club: club)
+            for prospect in newProspects {
+                club.addProspect(prospect)
+            }
+            // Keep the academy from ballooning.
+            if club.academyProspects.count > 10 {
+                club.academyProspects.sort { $0.potential > $1.potential }
+                club.academyProspects = Array(club.academyProspects.prefix(10))
+            }
+            clubs[cIdx] = club
+        }
+
+        if let userClub = userClub {
+            let standout = userClub.academyProspects.max { $0.potential < $1.potential }
+            if let standout = standout, standout.potential >= 75 {
+                addNews(
+                    headline: "Academy Starlet Emerges",
+                    body: "Your academy staff are excited about \(standout.fullName) (\(standout.primaryPosition.displayName), age \(standout.age)) — potential rated \(standout.potential). Consider promoting them to the senior squad.",
+                    category: .board,
+                    sender: "Head of Youth Development"
+                )
+            } else {
+                addNews(
+                    headline: "Youth Intake Complete",
+                    body: "The academy has welcomed a new crop of prospects this summer. Review them in the Youth Academy screen.",
+                    category: .board,
+                    sender: "Head of Youth Development"
+                )
+            }
+        }
+
         addNews(
             headline: "Welcome to Season \(nextYear)!",
             body: "The new league season is officially underway. Training camps are open.",
@@ -1133,7 +1207,8 @@ public final class GameState: Codable {
             addNews(
                 headline: "\(offer.teamName) Approach You",
                 body: "\(offer.teamName) of the \(offer.leagueName) would like you to become their next manager. Visit Job Offers to respond.",
-                category: .general
+                category: .board,
+                sender: "\(offer.teamName) Board"
             )
         }
     }
@@ -1163,8 +1238,10 @@ public final class GameState: Codable {
         addNews(
             headline: "You Are Now the Manager of \(clubs[idx].name)!",
             body: "\(clubs[idx].name) have appointed \(manager.fullName) as first-team manager.",
-            category: .general
+            category: .board,
+            sender: "The Board — \(clubs[idx].name)"
         )
+        seedManagerInbox()
         return clubs[idx]
     }
 
@@ -1217,13 +1294,72 @@ public final class GameState: Codable {
         manager.age += 1
     }
 
-    public func addNews(headline: String, body: String, category: NewsCategory) {        let item = NewsItem(
+    public func addNews(headline: String, body: String, category: NewsCategory, sender: String = "Club News Desk") {
+        let item = NewsItem(
             headline: headline,
             body: body,
             date: season.currentDate,
-            category: category
+            category: category,
+            sender: sender
         )
         news.insert(item, at: 0)
+    }
+
+    /// Number of unread manager messages.
+    public var unreadMailCount: Int {
+        news.reduce(0) { $0 + ($1.isRead ? 0 : 1) }
+    }
+
+    /// Marks every message in the inbox as read.
+    public func markAllMailRead() {
+        for idx in news.indices where !news[idx].isRead {
+            news[idx].isRead = true
+        }
+    }
+
+    /// Marks a single message as read.
+    public func markMailRead(id: UUID) {
+        guard let idx = news.firstIndex(where: { $0.id == id }) else { return }
+        news[idx].isRead = true
+    }
+
+    /// Seeds the manager's inbox with the board's welcome and season objectives the
+    /// first time a club is taken over.
+    public func seedManagerInbox() {
+        guard let club = userClub else { return }
+        let boardTone = club.reputation >= 70 ? "a club of our standing"
+            : club.reputation >= 45 ? "an ambitious club"
+            : "a club with real potential"
+        addNews(
+            headline: "Welcome to \(club.name)",
+            body: "The board is delighted to appoint you as first-team manager. We see \(boardTone) and believe you are the right person to lead it. The squad is yours — good luck.",
+            category: .board,
+            sender: "The Board — \(club.name)"
+        )
+        addNews(
+            headline: "Season Objectives",
+            body: "Our minimum expectation this season is a \(boardExpectation(for: club)). Exceed it and the board will back you in the transfer market and reward you with a new contract.",
+            category: .board,
+            sender: "The Board — \(club.name)"
+        )
+        addNews(
+            headline: "Transfer Window Open",
+            body: "You have until the end of the window to strengthen the squad. Your available budget and wage headroom are shown in the Transfer Hub.",
+            category: .transfer,
+            sender: "Club Secretary"
+        )
+    }
+
+    /// Board's minimum season expectation derived from the club's tier and reputation.
+    private func boardExpectation(for club: Club) -> String {
+        if club.leagueTier.isTopFlight {
+            if club.reputation >= 75 { return "title challenge" }
+            if club.reputation >= 55 { return "top-half finish and a European push" }
+            return "comfortable mid-table safety"
+        }
+        if club.reputation >= 55 { return "promotion challenge" }
+        if club.reputation >= 40 { return "top-half finish" }
+        return "battle against relegation"
     }
     
     // MARK: - Codable Implementation
@@ -1234,7 +1370,6 @@ public final class GameState: Codable {
         case leagues
         case season
         case userClubId
-        case userPlayerId
         case freeAgents
         case transferHistory
         case pendingTransferOffers
@@ -1257,7 +1392,6 @@ public final class GameState: Codable {
         try container.encode(leagues, forKey: .leagues)
         try container.encode(season, forKey: .season)
         try container.encodeIfPresent(userClubId, forKey: .userClubId)
-        try container.encodeIfPresent(userPlayerId, forKey: .userPlayerId)
         try container.encode(freeAgents, forKey: .freeAgents)
         try container.encode(transferHistory, forKey: .transferHistory)
         try container.encode(pendingTransferOffers, forKey: .pendingTransferOffers)
@@ -1280,7 +1414,6 @@ public final class GameState: Codable {
         self.leagues = try container.decode([League].self, forKey: .leagues)
         self.season = try container.decode(Season.self, forKey: .season)
         self.userClubId = try container.decodeIfPresent(UUID.self, forKey: .userClubId)
-        self.userPlayerId = try container.decodeIfPresent(UUID.self, forKey: .userPlayerId)
         self.freeAgents = try container.decode([Player].self, forKey: .freeAgents)
         self.transferHistory = try container.decode([TransferRecord].self, forKey: .transferHistory)
         self.pendingTransferOffers = try container.decode([TransferOffer].self, forKey: .pendingTransferOffers)

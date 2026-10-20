@@ -13,18 +13,34 @@ import SwiftUI
 public struct MailboxView: View {
     @Environment(GameState.self) private var gameState
     @State private var filter: NewsCategory?
+    @State private var unreadOnly = false
 
     private var items: [NewsItem] {
-        guard let filter = filter else { return gameState.news }
-        return gameState.news.filter { $0.category == filter }
+        var result = gameState.news
+        if unreadOnly { result = result.filter { !$0.isRead } }
+        if let filter = filter { result = result.filter { $0.category == filter } }
+        return result
     }
 
     public var body: some View {
         List {
             Section {
+                HStack {
+                    Text(unreadCountLabel)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                    Spacer()
+                    Button("Mark All Read") {
+                        gameState.markAllMailRead()
+                    }
+                    .font(.caption)
+                    .disabled(gameState.unreadMailCount == 0)
+                    .accessibilityLabel("Mark all messages as read")
+                }
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         filterChip(nil, label: "All")
+                        unreadChip
                         ForEach(NewsCategory.allCases) { category in
                             filterChip(category, label: category.displayName)
                         }
@@ -38,16 +54,19 @@ public struct MailboxView: View {
                 ContentUnavailableView(
                     "Inbox Empty",
                     systemImage: "tray",
-                    description: Text("Club correspondence will appear here.")
+                    description: Text(unreadOnly ? "No unread messages." : "Club correspondence will appear here.")
                 )
             } else {
                 ForEach(items) { item in
                     MailRow(item: item)
+                        .listRowBackground(item.isRead ? Color.clear : Color.accentColor.opacity(0.08))
+                        .onTapGesture { gameState.markMailRead(id: item.id) }
                 }
             }
         }
         .navigationTitle("Inbox")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { gameState.markAllMailRead() }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Done") {
@@ -56,6 +75,29 @@ public struct MailboxView: View {
                 .accessibilityLabel("Close inbox")
             }
         }
+    }
+
+    private var unreadCountLabel: String {
+        let n = gameState.unreadMailCount
+        return n == 0 ? "No unread messages" : "\(n) unread"
+    }
+
+    private var unreadChip: some View {
+        Button {
+            unreadOnly.toggle()
+        } label: {
+            Text("Unread")
+                .font(.caption)
+                .fontWeight(.medium)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(unreadOnly ? Color.accentColor : Color(UIColor.secondarySystemGroupedBackground))
+                .foregroundStyle(unreadOnly ? .white : .primary)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Show unread messages only")
+        .accessibilityAddTraits(unreadOnly ? .isSelected : [])
     }
 
     private func filterChip(_ category: NewsCategory?, label: String) -> some View {
@@ -88,9 +130,21 @@ private struct MailRow: View {
                 .frame(width: 30)
 
             VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(item.sender)
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.secondary)
+                    if !item.isRead {
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: 7, height: 7)
+                            .accessibilityLabel("Unread")
+                    }
+                }
                 Text(item.headline)
                     .font(.subheadline)
-                    .fontWeight(.semibold)
+                    .fontWeight(item.isRead ? .semibold : .bold)
                 Text(item.body)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -101,7 +155,7 @@ private struct MailRow: View {
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(item.category.displayName). \(item.headline). \(item.body)")
+        .accessibilityLabel("\(item.isRead ? "" : "Unread. ")From \(item.sender). \(item.category.displayName). \(item.headline). \(item.body)")
     }
 }
 

@@ -50,6 +50,7 @@ struct GridironFCApp: App {
                 europeanCompetitions: EuropeanCompetitionBuilder.build(from: clubs)
             )
             state.seedFreeAgents()
+            state.seedAcademies()
             
             _gameState = State(initialValue: state)
         }
