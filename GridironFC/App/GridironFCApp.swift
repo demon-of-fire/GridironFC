@@ -46,7 +46,8 @@ struct GridironFCApp: App {
                 clubs: clubs,
                 leagues: leagues,
                 season: initialSeason,
-                currentScreen: .mainMenu
+                currentScreen: .mainMenu,
+                europeanCompetitions: EuropeanCompetitionBuilder.build(from: clubs)
             )
             state.seedFreeAgents()
             

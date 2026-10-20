@@ -48,6 +48,8 @@ public struct ContentView: View {
                 MailboxView()
             case .matchHistory:
                 MatchHistoryView()
+            case .europeanCompetitions:
+                EuropeanCompetitionsView()
             case .playerDetail(let playerId):
                 PlayerDetailView(playerId: playerId)
             }
@@ -146,6 +148,11 @@ public struct InGameTabView: View {
                         gameState.currentScreen = .matchHistory
                     } label: {
                         Label("Match History", systemImage: "sportscourt")
+                    }
+                    Button {
+                        gameState.currentScreen = .europeanCompetitions
+                    } label: {
+                        Label("European Competitions", systemImage: "globe.europe.africa")
                     }
                     Button {
                         gameState.currentScreen = .managerProfile
@@ -2401,5 +2408,126 @@ public struct NegotiationView: View {
         }
         showOutcome = true
         try? SaveManager.shared.autoSave(gameState: gameState)
+    }
+}
+
+// MARK: - European Competitions Screen
+
+public struct EuropeanCompetitionsView: View {
+    @Environment(GameState.self) private var gameState
+    @State private var selectedCompetition: EuropeanCompetition = .championsLeague
+
+    private var competitionState: EuropeanCompetitionState? {
+        gameState.europeanCompetitions.first { $0.competition == selectedCompetition }
+    }
+
+    public var body: some View {
+        List {
+            Section {
+                Picker("Competition", selection: $selectedCompetition) {
+                    ForEach(EuropeanCompetition.allCases) { comp in
+                        Text(comp.shortName).tag(comp)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityLabel("Select competition")
+            }
+
+            if let state = competitionState {
+                Section(header: Text(state.competition.displayName)) {
+                    if state.stage == .complete, let champ = state.championClubId {
+                        HStack {
+                            Image(systemName: "trophy.fill").foregroundStyle(.yellow)
+                            Text("\(gameState.club(withId: champ)?.name ?? "Champion") — Champions")
+                                .fontWeight(.semibold)
+                        }
+                    } else {
+                        Text(state.stage == .leaguePhase
+                             ? "League Phase — Matchweek \(min(gameState.europeanMatchweek, state.competition.leaguePhaseMatches)) of \(state.competition.leaguePhaseMatches)"
+                             : "Knockout Stage")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section(header: leaguePhaseHeader) {
+                    let rows = state.table()
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                        let rank = index + 1
+                        let club = gameState.club(withId: row.clubId)
+                        HStack {
+                            Text("\(rank)")
+                                .font(.caption)
+                                .frame(width: 24, alignment: .leading)
+                            Text(club?.name ?? "Club")
+                                .font(.subheadline)
+                                .fontWeight(club?.isUserClub == true ? .bold : .regular)
+                            Spacer()
+                            Text("\(row.played)").font(.caption).frame(width: 26, alignment: .trailing)
+                            Text("\(row.goalDifference)").font(.caption).frame(width: 30, alignment: .trailing)
+                            Text("\(row.points)").font(.subheadline).fontWeight(.bold).frame(width: 32, alignment: .trailing)
+                        }
+                        .accessibilityElement(children: .combine)
+                    }
+                }
+
+                if let userClubId = gameState.userClubId {
+                    let userFixtures = state.fixtures
+                        .filter { $0.homeClubId == userClubId || $0.awayClubId == userClubId }
+                        .sorted { $0.matchweek < $1.matchweek }
+                    if !userFixtures.isEmpty {
+                        Section(header: Text("Your \(state.competition.shortName) Fixtures")) {
+                            ForEach(userFixtures) { fx in
+                                EuropeanFixtureRow(fixture: fx, competitionState: state)
+                            }
+                        }
+                    }
+                }
+            } else {
+                Text("No European competitions loaded.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("European Competitions")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var leaguePhaseHeader: some View {
+        HStack {
+            Text("#").frame(width: 24, alignment: .leading)
+            Text("Club")
+            Spacer()
+            Text("P").frame(width: 26, alignment: .trailing)
+            Text("GD").frame(width: 30, alignment: .trailing)
+            Text("Pts").frame(width: 32, alignment: .trailing)
+        }
+        .font(.caption)
+        .fontWeight(.bold)
+        .foregroundStyle(.secondary)
+    }
+}
+
+private struct EuropeanFixtureRow: View {
+    @Environment(GameState.self) private var gameState
+    let fixture: EuropeanFixture
+    let competitionState: EuropeanCompetitionState
+
+    public var body: some View {
+        let home = gameState.club(withId: fixture.homeClubId)?.name ?? "Home"
+        let away = gameState.club(withId: fixture.awayClubId)?.name ?? "Away"
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(home) vs \(away)").font(.subheadline)
+                Text("\(fixture.stage) • MW \(fixture.matchweek)").font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if fixture.isPlayed {
+                Text("\(fixture.homeGoals)–\(fixture.awayGoals)").font(.subheadline).fontWeight(.bold)
+            } else {
+                Text("—").foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 }

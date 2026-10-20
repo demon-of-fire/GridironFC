@@ -1177,6 +1177,7 @@ public enum AppScreen: Hashable, Codable {
     case settings
     case mailbox
     case matchHistory
+    case europeanCompetitions
     case playerDetail(UUID)
     
     private enum CodingKeys: String, CodingKey {
@@ -1237,6 +1238,8 @@ public enum AppScreen: Hashable, Codable {
             try container.encode("mailbox", forKey: .screenType)
         case .matchHistory:
             try container.encode("matchHistory", forKey: .screenType)
+        case .europeanCompetitions:
+            try container.encode("europeanCompetitions", forKey: .screenType)
         case .playerDetail(let uuid):
             try container.encode("playerDetail", forKey: .screenType)
             try container.encode(uuid, forKey: .playerId)
@@ -1272,6 +1275,7 @@ public enum AppScreen: Hashable, Codable {
         case "settings": self = .settings
         case "mailbox": self = .mailbox
         case "matchHistory": self = .matchHistory
+        case "europeanCompetitions": self = .europeanCompetitions
         case "playerDetail":
             let uuid = try container.decode(UUID.self, forKey: .playerId)
             self = .playerDetail(uuid)

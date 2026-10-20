@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **European competitions** — the UEFA Champions League, Europa League and
+  Conference League now run in-game with their modern format: a single-table
+  league phase (36 clubs, 8 matches each; 32/6 for the Conference League),
+  followed by a two-legged knockout play-off, Round of 16, Quarter-Finals,
+  Semi-Finals and a single-match Final. Real participant clubs are seeded from
+  the dataset and padded with the strongest remaining top-flight clubs.
+  View tables and your own fixtures from the overflow menu under
+  **European Competitions**.
+
 - **Real-world data import** — the world is now populated from a real
   Transfermarkt dataset (club names, stadiums, capacities, coaches, and full
   squads with real player names, ages, nationalities, positions, and feet).

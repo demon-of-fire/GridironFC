@@ -66,6 +66,11 @@ public final class GameState: Codable {
     public var manager: ManagerProfile
     public var jobOffers: [JobOffer]
     
+    // European club competitions (Champions League, Europa League, Conference League)
+    public var europeanCompetitions: [EuropeanCompetitionState]
+    /// European matchweek pointer; advances alongside the domestic calendar.
+    public var europeanMatchweek: Int
+    
     // MARK: - Initializer
     
     public init(
@@ -85,7 +90,9 @@ public final class GameState: Codable {
         negotiationTargetPlayerId: UUID? = nil,
         soundEnabled: Bool = true,
         manager: ManagerProfile = ManagerProfile(),
-        jobOffers: [JobOffer] = []
+        jobOffers: [JobOffer] = [],
+        europeanCompetitions: [EuropeanCompetitionState] = [],
+        europeanMatchweek: Int = 0
     ) {
         self.gameMode = gameMode
         self.clubs = clubs
@@ -104,9 +111,9 @@ public final class GameState: Codable {
         self.soundEnabled = soundEnabled
         self.manager = manager
         self.jobOffers = jobOffers
-    }
-    
-    // MARK: - Computed Properties
+        self.europeanCompetitions = europeanCompetitions
+        self.europeanMatchweek = europeanMatchweek
+    }    // MARK: - Computed Properties
     
     public var userClub: Club? {
         guard let id = userClubId else { return nil }
@@ -335,11 +342,73 @@ public final class GameState: Codable {
         
         // 5. Advance matchweek counter
         season.currentWeek += 1
+
+        // 5b. Advance European competitions (one European matchweek from domestic week 3).
+        advanceEuropeanCompetitions()
         
         // 6. Check if season has completed
         if season.isSeasonFinished && season.currentPhase != .endOfSeason {
             processEndOfSeason()
         }
+    }
+
+    /// Advances every European competition one matchweek, simulating its fixtures
+    /// with an Elo-style scoreline derived from club strength. Lakes a week off to
+    /// avoid clashing with the very start of the domestic season.
+    public func advanceEuropeanCompetitions() {
+        guard !europeanCompetitions.isEmpty else { return }
+        guard season.currentWeek >= 3 else { return }
+
+        europeanMatchweek += 1
+        let week = europeanMatchweek
+
+        for idx in europeanCompetitions.indices {
+            var competition = europeanCompetitions[idx]
+            competition.advanceMatchweek(week: week) { [weak self] home, away in
+                guard let self, let hc = self.club(withId: home), let ac = self.club(withId: away) else {
+                    return (0, 0)
+                }
+                return Self.simulateEuropeanScore(home: hc, away: ac)
+            }
+
+            // Surface the final result as news when a champion is crowned.
+            if competition.stage == .complete, competition.championClubId != nil,
+               europeanCompetitions[idx].championClubId == nil,
+               let champ = competition.championClubId {
+                addNews(
+                    headline: "\(clubName(for: champ)) Win the \(competition.competition.displayName)!",
+                    body: "\(clubName(for: champ)) are crowned champions of Europe.",
+                    category: .award
+                )
+            }
+
+            europeanCompetitions[idx] = competition
+        }
+    }
+
+    /// A lightweight European scoreline from the two clubs' top-11 average ratings.
+    static func simulateEuropeanScore(home: Club, away: Club) -> (Int, Int) {
+        func strength(_ club: Club) -> Double {
+            let xi = club.players.sorted { $0.overall > $1.overall }.prefix(11)
+            guard !xi.isEmpty else { return 60 }
+            return Double(xi.map { $0.overall }.reduce(0, +)) / Double(xi.count)
+        }
+        let homeStrength = strength(home) + 3.0   // home advantage
+        let awayStrength = strength(away)
+        let diff = (homeStrength - awayStrength) / 8.0
+
+        var rng = SystemRandomNumberGenerator()
+        func goals(for attackDiff: Double) -> Int {
+            let base = 1.25 + attackDiff
+            let expected = max(0.15, base)
+            var goals = 0
+            var probability = expected / (expected + 1.0)
+            for _ in 0..<6 {
+                if Double.random(in: 0...1, using: &rng) < probability * 0.85 { goals += 1 }
+            }
+            return min(goals, 6)
+        }
+        return (goals(for: diff), goals(for: -diff))
     }
 
     /// True once all fixtures are played and the end-of-season processing has run.
@@ -771,6 +840,10 @@ public final class GameState: Codable {
             fixtures: allNewFixtures,
             currentDate: preseasonDate
         )
+
+        // Rebuild the European competitions for the new season.
+        europeanCompetitions = EuropeanCompetitionBuilder.build(from: clubs)
+        europeanMatchweek = 0
         
         // Reset player seasonal match statistics
         for cIdx in 0..<clubs.count {
@@ -1173,6 +1246,8 @@ public final class GameState: Codable {
         case soundEnabled
         case manager
         case jobOffers
+        case europeanCompetitions
+        case europeanMatchweek
     }
     
     public func encode(to encoder: Encoder) throws {
@@ -1194,6 +1269,8 @@ public final class GameState: Codable {
         try container.encode(soundEnabled, forKey: .soundEnabled)
         try container.encode(manager, forKey: .manager)
         try container.encode(jobOffers, forKey: .jobOffers)
+        try container.encode(europeanCompetitions, forKey: .europeanCompetitions)
+        try container.encode(europeanMatchweek, forKey: .europeanMatchweek)
     }
     
     public required init(from decoder: Decoder) throws {
@@ -1215,5 +1292,7 @@ public final class GameState: Codable {
         self.soundEnabled = try container.decodeIfPresent(Bool.self, forKey: .soundEnabled) ?? true
         self.manager = try container.decodeIfPresent(ManagerProfile.self, forKey: .manager) ?? ManagerProfile()
         self.jobOffers = try container.decodeIfPresent([JobOffer].self, forKey: .jobOffers) ?? []
+        self.europeanCompetitions = try container.decodeIfPresent([EuropeanCompetitionState].self, forKey: .europeanCompetitions) ?? []
+        self.europeanMatchweek = try container.decodeIfPresent(Int.self, forKey: .europeanMatchweek) ?? 0
     }
 }
