@@ -740,19 +740,21 @@ public struct ManagerCreationView: View {
     }
 
     private func attributeSlider(title: String, value: Binding<Int>) -> some View {
-        HStack {
-            Text(title)
-                .font(.subheadline)
-            Spacer()
-            Text("\(value.wrappedValue)")
-                .font(.subheadline)
-                .fontWeight(.bold)
-                .frame(width: 28, alignment: .trailing)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(title)
+                    .font(.subheadline)
+                Spacer()
+                Text("\(value.wrappedValue)")
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .frame(width: 28, alignment: .trailing)
+            }
+            Slider(value: Binding(
+                get: { Double(value.wrappedValue) },
+                set: { value.wrappedValue = Int($0) }
+            ), in: 20...90, step: 1)
         }
-        Slider(value: Binding(
-            get: { Double(value.wrappedValue) },
-            set: { value.wrappedValue = Int($0) }
-        ), in: 20...90, step: 1)
     }
 
     private func launch() {

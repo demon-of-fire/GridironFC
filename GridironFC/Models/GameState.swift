@@ -1032,7 +1032,7 @@ public final class GameState: Codable {
         // whole world every week — offers are generated on demand (job screen / news).
         let sorted = candidates.sorted { $0.reputation > $1.reputation }
         var newOffers: [JobOffer] = []
-        for club in sorted.prefix(max(count: maxCount * 3, count: maxCount)) {
+        for club in sorted.prefix(max(maxCount * 3, maxCount)) {
             let league = leagues.first { $0.tier == club.leagueTier }
             let wage = max(1_000, club.finances.wageBudget / 40)
             newOffers.append(
