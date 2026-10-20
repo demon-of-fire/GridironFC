@@ -307,12 +307,27 @@ public final class GameState: Codable {
         let buyer = clubs[buyerIdx]
         let canAffordFee = isFreeAgent || fee <= buyer.finances.transferBudget
         let wageHeadroom = buyer.finances.wageBudget - buyer.finances.currentWageBill
-        let canAffordWage = offeredWage <= max(wageHeadroom, 0) + 5_000
+        // A signing is permitted as long as the new wage is covered by existing headroom,
+        // or does not blow more than ~20% past the current wage structure. This avoids the
+        // situation where a club sitting exactly at its wage ceiling can never sign anyone.
+        let wageCeiling = max(wageHeadroom, 0) + Int(Double(max(buyer.finances.wageBudget, 1)) * 0.20) + 2_000
+        let canAffordWage = offeredWage <= wageCeiling || offeredWage <= max(wageHeadroom, 0) + 8_000
         
         // Selling club decision: accept when the bid meets or beats their valuation,
-        // with a small chance-based tolerance for near-misses.
-        let threshold = isFreeAgent ? 0 : Int(Double(askingPrice) * 0.95)
-        let acceptableFee = isFreeAgent || fee >= threshold || Double(fee) >= Double(askingPrice) * 0.9 && Double.random(in: 0...1) < 0.35
+        // with a graded tolerance for near-misses.
+        let valuation = Double(askingPrice)
+        let acceptableFee: Bool
+        if isFreeAgent {
+            acceptableFee = true
+        } else if Double(fee) >= valuation {
+            acceptableFee = true
+        } else if Double(fee) >= valuation * 0.9 {
+            acceptableFee = true
+        } else if Double(fee) >= valuation * 0.75 {
+            acceptableFee = Double.random(in: 0...1) < 0.4
+        } else {
+            acceptableFee = false
+        }
         
         if !canAffordFee || !canAffordWage || !acceptableFee {
             offer.status = .rejected
@@ -380,6 +395,52 @@ public final class GameState: Codable {
             body: "\(clubs[buyerIdx].name) have completed the \(fee == 0 ? "free transfer" : "£" + String(fee)) signing of \(signed.fullName) from \(fromClubName).",
             category: .transfer
         )
+    }
+    
+    // MARK: - Free Agent Bootstrapping
+    
+    /// Populates the free-agent market with a pool of unattached players so the
+    /// user (and AI clubs) always have signings available from day one.
+    public func seedFreeAgents(count: Int = 40) {
+        guard freeAgents.count < 8 else { return }
+        
+        let firstNames = ["Jack", "Liam", "Marcus", "Tom", "Sam", "Ollie", "Callum", "Reuben",
+                          "Tyrese", "Kwame", "Diego", "Bruno", "Yuki", "Andrei", "Mateo", "Idris",
+                          "Finley", "Kai", "Noah", "Ethan", "Leo", "Rafael", "Adam", "Isaac"]
+        let lastNames = ["Bennett", "Okafor", "Silva", "Mensah", "Vargas", "Novak", "Petrov",
+                         "Haddad", "Bauer", "Rossi", "Tanaka", "Adebayo", "Clarke", "Murphy",
+                         "Fernandes", "Kovac", "Larsson", "Diallo", "Moretti", "Suzuki"]
+        let nationalities = ["England", "Scotland", "Wales", "Ireland", "France", "Spain",
+                             "Portugal", "Germany", "Italy", "Brazil", "Nigeria", "Ghana",
+                             "Netherlands", "Belgium", "Denmark", "Sweden", "Japan", "USA"]
+        
+        for _ in 0..<count {
+            let position = Position.allCases.randomElement() ?? .CM
+            let tierRoll = Int.random(in: 0...100)
+            let overall: Int
+            if tierRoll < 10 { overall = Int.random(in: 68...76) }
+            else if tierRoll < 40 { overall = Int.random(in: 58...67) }
+            else { overall = Int.random(in: 46...57) }
+            
+            let age = Int.random(in: 18...35)
+            let potential = min(99, overall + (age <= 23 ? Int.random(in: 3...12) : Int.random(in: 0...3)))
+            let attrs = DataLoader.generateAttributes(overall: overall, position: position)
+            
+            let player = Player(
+                firstName: firstNames.randomElement() ?? "Alex",
+                lastName: lastNames.randomElement() ?? "Smith",
+                nationality: nationalities.randomElement() ?? "England",
+                age: age,
+                height: Int.random(in: 172...192),
+                weight: Int.random(in: 66...88),
+                preferredFoot: [Foot.right, Foot.right, Foot.left, Foot.both].randomElement() ?? .right,
+                positions: [position],
+                attributes: attrs,
+                overall: overall,
+                potential: potential
+            )
+            freeAgents.append(player)
+        }
     }
     
     // MARK: - AI Manager Transfer Engine
@@ -513,8 +574,8 @@ public final class GameState: Codable {
             startYearInt = y1 + 1
             endYearInt = y2 + 1
         } else {
-            startYearInt = 2025
-            endYearInt = 2026
+            startYearInt = 2027
+            endYearInt = 2028
         }
         let nextYear = "\(startYearInt)-\(String(format: "%02d", endYearInt % 100))"
         

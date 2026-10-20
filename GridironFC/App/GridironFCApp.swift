@@ -28,17 +28,17 @@ struct GridironFCApp: App {
                 let fixtures = FixtureGenerator.generateDoubleRoundRobin(
                     clubIds: league.clubIds,
                     competitionName: league.name,
-                    startDateString: "2024-08-10"
+                    startDateString: "2026-08-08"
                 )
                 allFixtures.append(contentsOf: fixtures)
             }
             
             let initialSeason = Season(
-                year: "2024-25",
+                year: "2026-27",
                 currentWeek: 1,
                 currentPhase: .preseason,
                 fixtures: allFixtures,
-                currentDate: "2024-08-01"
+                currentDate: "2026-08-01"
             )
             
             let state = GameState(
@@ -48,6 +48,7 @@ struct GridironFCApp: App {
                 season: initialSeason,
                 currentScreen: .mainMenu
             )
+            state.seedFreeAgents()
             
             _gameState = State(initialValue: state)
         }

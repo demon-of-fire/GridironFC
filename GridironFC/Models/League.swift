@@ -33,18 +33,18 @@ public struct League: Codable, Identifiable, Hashable {
 // MARK: - Season Model
 
 public struct Season: Codable, Hashable {
-    public var year: String                 // e.g., "2024-25"
+    public var year: String                 // e.g., "2026-27"
     public var currentWeek: Int             // Matchweek index (1 to 46)
     public var currentPhase: SeasonPhase
     public var fixtures: [Fixture]
     public var currentDate: String          // In-game calendar date "YYYY-MM-DD"
     
     public init(
-        year: String = "2024-25",
+        year: String = "2026-27",
         currentWeek: Int = 1,
         currentPhase: SeasonPhase = .inSeason,
         fixtures: [Fixture] = [],
-        currentDate: String = "2024-08-10"
+        currentDate: String = "2026-08-08"
     ) {
         self.year = year
         self.currentWeek = currentWeek

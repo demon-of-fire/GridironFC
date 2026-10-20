@@ -263,7 +263,7 @@ public struct MatchEngine {
             
             let eventRoll = Double.random(in: 0...100)
             
-            if eventRoll < (16.5 * tempoChanceModifier) {
+            if eventRoll < (9.5 * tempoChanceModifier) {
                 // Open play chance
                 resolveChance(
                     isHomeAttacking: isHomeInPossession,
@@ -284,7 +284,7 @@ public struct MatchEngine {
                     minute: minute,
                     events: &events
                 )
-            } else if eventRoll < (21.0 * tempoChanceModifier) {
+            } else if eventRoll < (13.0 * tempoChanceModifier) {
                 // Corner Kick
                 resolveCorner(
                     isHomeAttacking: isHomeInPossession,
@@ -305,7 +305,7 @@ public struct MatchEngine {
                     minute: minute,
                     events: &events
                 )
-            } else if eventRoll < (23.5 * tempoChanceModifier) {
+            } else if eventRoll < (14.5 * tempoChanceModifier) {
                 // Dangerous Free Kick
                 resolveFreeKick(
                     isHomeAttacking: isHomeInPossession,
@@ -324,7 +324,7 @@ public struct MatchEngine {
                     minute: minute,
                     events: &events
                 )
-            } else if eventRoll < 28.0 {
+            } else if eventRoll < 18.0 {
                 // Foul and Disciplinary check
                 resolveFoul(
                     isHomeTeamFouling: !isHomeInPossession,
@@ -339,7 +339,7 @@ public struct MatchEngine {
                     minute: minute,
                     events: &events
                 )
-            } else if eventRoll < 29.5 {
+            } else if eventRoll < 19.5 {
                 // In-match injury roll
                 checkInMatchInjury(
                     homeActive: &homeActive,
@@ -513,7 +513,7 @@ public struct MatchEngine {
         let composureSkill = Double(shooter.player.attributes.composure)
         let baseChanceQuality = (shootingSkill * 0.6 + composureSkill * 0.4) / 100.0
         
-        let chanceXG = min(0.75, max(0.04, baseChanceQuality * Double.random(in: 0.3...0.85)))
+        let chanceXG = min(0.50, max(0.03, baseChanceQuality * Double.random(in: 0.25...0.70)))
         if isHomeAttacking { homeXG += chanceXG } else { awayXG += chanceXG }
         
         // Opposition goalkeeper
@@ -524,7 +524,9 @@ public struct MatchEngine {
         let gkPositioning = Double(gk.player.attributes.gkPositioning)
         let gkSkill = (gkReflexes * 0.6 + gkPositioning * 0.4) / 100.0
         
-        let conversionProbability = chanceXG * (1.2 - (gkSkill * 0.4))
+        // Realistic finishing: a single open-play chance converts ~15-18% of the time
+        // before goalkeeper quality is factored in.
+        let conversionProbability = chanceXG * 0.85 * (1.15 - (gkSkill * 0.45))
         let roll = Double.random(in: 0...1)
         
         if roll < conversionProbability {
@@ -697,9 +699,9 @@ public struct MatchEngine {
         if isHomeAttacking { homeXG += cornerXG } else { awayXG += cornerXG }
         if isHomeAttacking { homeShots += 1 } else { awayShots += 1 }
         
-        // Goal chance (~11% for high quality set-pieces)
+        // Goal chance (~4% for high quality set-pieces)
         let headingSkill = Double(headerTarget.player.attributes.heading)
-        let goalChance = (Double(taker.player.attributes.crossing) * 0.05 + headingSkill * 0.08) / 100.0
+        let goalChance = (Double(taker.player.attributes.crossing) * 0.02 + headingSkill * 0.035) / 100.0
         
         if Double.random(in: 0...1) < goalChance {
             if isHomeAttacking {
@@ -793,7 +795,7 @@ public struct MatchEngine {
             awayXG += chanceXG
         }
         
-        let conversionChance = (fkSkill * 0.12) / 100.0
+        let conversionChance = (fkSkill * 0.05) / 100.0
         if Double.random(in: 0...1) < conversionChance {
             if isHomeAttacking {
                 homeGoals += 1
