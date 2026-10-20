@@ -195,10 +195,11 @@ public struct CrestView: View {
                 path.fill(primaryColor)
                 
                 // Pattern overlay clipped to the crest outline
-                path.fill(
-                    patternPath(for: ident, in: rect),
-                    with: .color(secondaryColor.opacity(ident.pattern == 0 ? 0 : 0.9))
-                )
+                if ident.pattern != 0 {
+                    patternPath(for: ident, in: rect)
+                        .fill(secondaryColor.opacity(0.9))
+                        .clipShape(path)
+                }
                 
                 // Outline
                 path.stroke(secondaryColor, lineWidth: max(1.5, size * 0.05))

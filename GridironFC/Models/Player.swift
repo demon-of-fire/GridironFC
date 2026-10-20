@@ -340,7 +340,7 @@ public struct Player: Codable, Identifiable, Hashable {
         let posFactor: Double
         switch position {
         case .ST, .CF: posFactor = 1.20
-        case .CAM, .LW, .RW: posFactor = 1.15
+        case .CAM, .LW, .RW, .LM, .RM: posFactor = 1.15
         case .CM, .CDM: posFactor = 1.00
         case .CB, .LB, .RB, .LWB, .RWB: posFactor = 0.90
         case .GK: posFactor = 0.75
