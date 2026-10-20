@@ -5,6 +5,39 @@ All notable changes to GridironFC are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Transfer market search** — filter the market by position, minimum rating, and
+  maximum age; sort by rating, value, age, or name; option to include free agents.
+- **Inbox tab** — the news inbox is now a first-class tab, seeded with board
+  objectives, transfer-window and free-agent scouting messages when you take over.
+- **Post-match league results** — the full-time recap now lists every other
+  result from the same matchweek.
+- **Close/Done buttons** — Settings, Inbox, and Match History can be dismissed
+  back to the dashboard.
+
+### Changed
+
+- **Calendar-driven progression** — the dashboard *Continue* button now advances
+  day by day to your next fixture (simulating other clubs' matches as it goes)
+  instead of requiring a separate *Prepare for Match* step, which was removed.
+- **Match engine balance** — possession is now clamped to a realistic 32–68%
+  range and chance frequency/conversion retuned for more realistic scorelines,
+  with scoring throttled once a side builds a multi-goal lead.
+
+### Fixed
+
+- **Squad tap-to-substitute** — tapping a bench player and a starter now swaps
+  them correctly via the new `swapIntoStartingXI` helper.
+- **Full league simulation** — other clubs' fixtures are now simulated through
+  the matchweek after your match, so standings no longer stall.
+- **Multi-season rollover** — end-of-season now transitions correctly, and the
+  dashboard offers *Start New Season* once the campaign is complete.
+- **Sound effects** — goal/win/draw/loss/whistle/click cues are now synthesised
+  as in-memory WAV tones (previous system-sound approach was unreliable).
+
 ## [0.1.0] - 2026-10-20
 
 First public build of GridironFC. Ships as an **unsigned `.ipa`** for sideloading
