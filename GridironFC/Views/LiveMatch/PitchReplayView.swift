@@ -393,6 +393,7 @@ public struct LiveMatchView: View {
                 gameState.simulateMatch(fixture: &gameState.season.fixtures[idx])
             }
             minute = 90
+            gameState.finishMatchweekAfterUserMatch()
             gameState.currentScreen = .postMatch
         }
     }

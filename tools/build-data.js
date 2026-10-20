@@ -3,7 +3,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const SEASON = '2025-26';
+const SEASON = '2026-27';
+const AGE_OFFSET = 1; // source rosters reflect the previous season; advance ages one year
 
 // [name, shortName, stadium, capacity, city, primary, secondary, reputation, manager, budgetM, wageBudgetK, playersPerWeek]
 const metadata = {
@@ -120,7 +121,7 @@ for (const tier of [1, 2, 3, 4]) {
     const players = squads[name];
     if (!players) throw new Error(`tier${tier}: missing squad for ${name}`);
     const playerObjs = players.map(([firstName, lastName, nationality, age, positions, overall, potential, foot, specialties]) => {
-      const o = { firstName, lastName, nationality, age, positions, overall, potential };
+      const o = { firstName, lastName, nationality, age: age + AGE_OFFSET, positions, overall, potential };
       if (foot) o.preferredFoot = foot;
       if (specialties) o.specialties = specialties;
       return o;

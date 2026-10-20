@@ -182,12 +182,19 @@ public final class GameState: Codable {
         season.currentDate = formatter.string(from: nextDate)
     }
     
+    /// Simulates every remaining unplayed fixture in the current matchweek, then
+    /// performs weekly upkeep (fitness, finances, AI transfers), advances the
+    /// calendar, and checks for season completion. Shared by `advanceWeek()` and
+    /// the post-user-match flow so the rest of the league always keeps pace.
+    public func finishMatchweekAfterUserMatch() {
+        advanceWeek()
+    }
+
     /// Advances the in-game week: simulates all pending matchweek matches, recovers fitness,
     /// runs AI transfer evaluation, updates financial balances, and checks promotion/relegation.
     public func advanceWeek() {
         // 1. Simulate all unplayed fixtures of the current matchweek
         let currentWeekFixtures = season.fixtures(forWeek: season.currentWeek).filter { !$0.isPlayed }
-        
         for fixture in currentWeekFixtures {
             if let idx = season.fixtures.firstIndex(where: { $0.id == fixture.id }) {
                 simulateMatch(fixture: &season.fixtures[idx])

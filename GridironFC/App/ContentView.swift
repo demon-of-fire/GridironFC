@@ -113,6 +113,14 @@ public struct InGameTabView: View {
         .navigationTitle(navigationTitleForTab(selectedTab))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    gameState.currentScreen = .mainMenu
+                } label: {
+                    Image(systemName: "house")
+                }
+                .accessibilityLabel("Main Menu")
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button {
@@ -1254,6 +1262,7 @@ public struct MatchDayView: View {
                         // Quick instant simulation
                         if let idx = gameState.season.fixtures.firstIndex(where: { $0.id == fixture.id }) {
                             gameState.simulateMatch(fixture: &gameState.season.fixtures[idx])
+                            gameState.finishMatchweekAfterUserMatch()
                             gameState.currentScreen = .postMatch
                         }
                     }) {
