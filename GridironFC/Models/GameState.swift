@@ -227,9 +227,14 @@ public final class GameState: Codable {
         season.currentWeek += 1
         
         // 6. Check if season has completed
-        if season.isSeasonFinished {
+        if season.isSeasonFinished && season.currentPhase != .endOfSeason {
             processEndOfSeason()
         }
+    }
+
+    /// True once all fixtures are played and the end-of-season processing has run.
+    public var isEndOfSeason: Bool {
+        season.currentPhase == .endOfSeason
     }
     
     // MARK: - Match Engine Simulation
@@ -776,7 +781,7 @@ public final class GameState: Codable {
         
         addNews(
             headline: "Season \(season.year) Concludes!",
-            body: "The final standings have been locked. Congratulations to all champions and promoted clubs.",
+            body: "The final standings have been locked. Congratulations to all champions and promoted clubs. Tap 'Start New Season' on the Home screen to begin the next campaign.",
             category: .award
         )
     }

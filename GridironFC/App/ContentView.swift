@@ -630,12 +630,18 @@ public struct DashboardView: View {
         ScrollView {
             VStack(spacing: 20) {
                 // Primary action: single Continue button
-                Button(action: { gameState.advanceWeek() }) {
+                Button(action: {
+                    if gameState.isEndOfSeason {
+                        gameState.startNewSeason()
+                    } else {
+                        gameState.advanceWeek()
+                    }
+                }) {
                     HStack {
-                        Image(systemName: "play.circle.fill")
+                        Image(systemName: gameState.isEndOfSeason ? "arrow.triangle.2.circlepath.circle.fill" : "play.circle.fill")
                             .font(.title2)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Continue")
+                            Text(gameState.isEndOfSeason ? "Start New Season" : "Continue")
                                 .font(.headline)
                             Text(continueSubtitle)
                                 .font(.caption)
@@ -835,6 +841,9 @@ public struct DashboardView: View {
     }
 
     private var continueSubtitle: String {
+        if gameState.isEndOfSeason {
+            return "Season \(gameState.season.year) complete — begin next campaign"
+        }
         if let fixture = gameState.nextUserFixture {
             return "Next: Matchweek \(fixture.matchWeek) • \(fixture.date)"
         }

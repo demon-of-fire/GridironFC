@@ -242,9 +242,11 @@ public struct MatchEngine {
                 neutralVenue: config.neutralVenue
             )
             
-            // Possession allocation for this minute
+            // Possession allocation for this minute. Clamp so a stronger side cannot
+            // monopolise every chance; real matches rarely exceed ~70/30 possession.
             let totalStrength = max(1.0, homeStrength + awayStrength)
-            let homePossessionChance = homeStrength / totalStrength
+            let rawPossessionChance = homeStrength / totalStrength
+            let homePossessionChance = min(0.68, max(0.32, rawPossessionChance))
             let isHomeInPossession = Double.random(in: 0...1) < homePossessionChance
             if isHomeInPossession {
                 homePossessionSeconds += 60.0
@@ -261,9 +263,22 @@ public struct MatchEngine {
             case .slow: tempoChanceModifier = 0.80
             }
             
+            // Game-state modifier: as the goal margin grows, both sides create fewer
+            // clear chances — the leading team eases off and the trailing side tightens.
+            // This keeps individual scorelines realistic while still allowing the odd
+            // heavy win without routine cricket scores.
+            let margin = abs(homeGoals - awayGoals)
+            let marginModifier: Double
+            switch margin {
+            case 0, 1: marginModifier = 1.0
+            case 2: marginModifier = 0.78
+            case 3: marginModifier = 0.60
+            default: marginModifier = 0.45
+            }
+            
             let eventRoll = Double.random(in: 0...100)
             
-            if eventRoll < (9.5 * tempoChanceModifier) {
+            if eventRoll < (8.5 * tempoChanceModifier * marginModifier) {
                 // Open play chance
                 resolveChance(
                     isHomeAttacking: isHomeInPossession,
@@ -525,8 +540,8 @@ public struct MatchEngine {
         let gkSkill = (gkReflexes * 0.6 + gkPositioning * 0.4) / 100.0
         
         // Realistic finishing: a single open-play chance converts ~15-18% of the time
-        // before goalkeeper quality is factored in.
-        let conversionProbability = chanceXG * 0.85 * (1.15 - (gkSkill * 0.45))
+        // before goalkeeper quality is factored in. A strong keeper suppresses this further.
+        let conversionProbability = chanceXG * 0.78 * (1.20 - (gkSkill * 0.55))
         let roll = Double.random(in: 0...1)
         
         if roll < conversionProbability {
