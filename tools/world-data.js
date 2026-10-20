@@ -109,7 +109,6 @@ const world = {
       ['Stockport County','STK','Edgeley Park',10852,'Stockport','#0046AD','#FFFFFF',61,'Dave Challinor'],
       ['Wigan Athletic','WIG','Brick Community Stadium',25133,'Wigan','#003087','#FFFFFF',62,'Ryan Lowe'],
       ['Wycombe Wanderers','WYC','Adams Park',9552,'High Wycombe','#1D3A8A','#FFFFFF',60,'Michael Duff'],
-      ['Wigan Athletic','WIG','Brick Community Stadium',25133,'Wigan','#003087','#FFFFFF',62,'Ryan Lowe'],
     ],
     4: [
       ['Accrington Stanley','ACC','Wham Stadium',5450,'Accrington','#DA291C','#FFFFFF',56,'John Doolan'],

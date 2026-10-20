@@ -342,6 +342,7 @@ public struct ClubFinances: Codable, Hashable {
             case .england, .spain, .italy, .germany: return 1.0
             case .france: return 0.75
             case .portugal, .netherlands, .turkey, .scotland, .belgium: return 0.5
+            default: return 0.35
             }
         }()
         let levelScale: Double = {

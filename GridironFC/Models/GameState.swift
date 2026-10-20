@@ -820,8 +820,8 @@ public final class GameState: Codable {
                 relegations[tier] = relegated
             }
             
-            // Automatic promotion from the top of the table (never the top flight).
-            if tier != .premierLeague {
+            // Automatic promotion from the top of the table (never a top flight).
+            if !tier.isTopFlight {
                 let autoCount = min(tier.autoPromotionCount, n)
                 if autoCount > 0 {
                     promotions[tier] = table.prefix(autoCount).map { $0.clubId }
@@ -846,12 +846,18 @@ public final class GameState: Codable {
         }
         
         // Map each promoted club to the destination tier and each relegated club downward.
+        // Only move between tiers that actually exist this season (countries whose lower
+        // divisions are not yet populated must not send clubs into a phantom league).
+        let existingTiers = Set(leagues.map { $0.tier })
+
         func destinationTierForPromotion(from tier: LeagueTier) -> LeagueTier? {
-            return tier.higherTier
+            guard let dest = tier.higherTier, existingTiers.contains(dest) else { return nil }
+            return dest
         }
         
         func destinationTierForRelegation(from tier: LeagueTier) -> LeagueTier? {
-            return tier.lowerTier
+            guard let dest = tier.lowerTier, existingTiers.contains(dest) else { return nil }
+            return dest
         }
         
         // Apply promotions.

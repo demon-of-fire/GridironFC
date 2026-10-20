@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Real-world data import** — the world is now populated from a real
+  Transfermarkt dataset (club names, stadiums, capacities, coaches, and full
+  squads with real player names, ages, nationalities, positions, and feet).
+  Player ratings are derived from real market values and age. The world now spans
+  **31 countries** and **40 divisions**, all playable offline.
+- **31 playable top flights** — England, Spain, Italy, Germany, France, Portugal,
+  Netherlands, Türkiye, Scotland, Belgium, Argentina, Australia, Austria, Brazil,
+  Croatia, Czech Republic, Denmark, Greece, Japan, South Korea, Mexico, Norway,
+  Poland, Romania, Russia, Saudi Arabia, Serbia, Sweden, Switzerland, Ukraine, and
+  the United States — each with its real clubs and squads (~14,500 real players).
+- **Country × division grid** — leagues are modelled as a country with up to four
+  divisions and a stable index structure; lower divisions (England 2-4, Spain 2-4,
+  Italy 2, Germany 2, France 2) carry authored club metadata with procedurally
+  generated squads pending a lower-league data source.
+
+> **Accuracy note:** Squad data reflects a recent-season snapshot, not the exact
+> 2026-27 rosters; some players may appear at a former club and ages are projected.
+> All crests and faces remain procedurally generated.
+
 - **European top flights** — four new fully playable leagues: **La Liga**, **Serie A**,
   **Bundesliga**, and **Ligue 1**, each with real clubs and real players bundled as
   offline JSON (`tier5`–`tier8`). Together with the English pyramid the world now spans

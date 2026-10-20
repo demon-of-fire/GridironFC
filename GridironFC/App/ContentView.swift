@@ -452,9 +452,14 @@ public struct ClubSelectView: View {
                 Menu {
                     Button("All Divisions") { selectedTier = nil }
                     ForEach(LeagueCountry.allCases) { country in
-                        Menu("\(country.flag) \(country.displayName)") {
-                            ForEach(LeagueTier.pyramid(for: country)) { tier in
-                                Button(tier.displayName) { selectedTier = tier }
+                        let tiers = LeagueTier.pyramid(for: country).filter { tier in
+                            gameState.clubs.contains { $0.leagueTier == tier }
+                        }
+                        if !tiers.isEmpty {
+                            Menu("\(country.flag) \(country.displayName)") {
+                                ForEach(tiers) { tier in
+                                    Button(tier.displayName) { selectedTier = tier }
+                                }
                             }
                         }
                     }

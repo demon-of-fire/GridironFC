@@ -540,6 +540,48 @@ public enum LeagueTier: Int, Codable, CaseIterable, Identifiable, Comparable, Ha
     case sco1 = 91, sco2 = 92, sco3 = 93, sco4 = 94
     // Belgium
     case bel1 = 101, bel2 = 102, bel3 = 103, bel4 = 104
+    // Argentina
+    case arg1 = 111, arg2 = 112, arg3 = 113, arg4 = 114
+    // Australia
+    case aus1 = 121, aus2 = 122, aus3 = 123, aus4 = 124
+    // Austria
+    case aut1 = 131, aut2 = 132, aut3 = 133, aut4 = 134
+    // Brazil
+    case bra1 = 141, bra2 = 142, bra3 = 143, bra4 = 144
+    // Croatia
+    case cro1 = 151, cro2 = 152, cro3 = 153, cro4 = 154
+    // Czech Republic
+    case cze1 = 161, cze2 = 162, cze3 = 163, cze4 = 164
+    // Denmark
+    case den1 = 171, den2 = 172, den3 = 173, den4 = 174
+    // Greece
+    case gre1 = 181, gre2 = 182, gre3 = 183, gre4 = 184
+    // Japan
+    case jpn1 = 191, jpn2 = 192, jpn3 = 193, jpn4 = 194
+    // South Korea
+    case kor1 = 201, kor2 = 202, kor3 = 203, kor4 = 204
+    // Mexico
+    case mex1 = 211, mex2 = 212, mex3 = 213, mex4 = 214
+    // Norway
+    case nor1 = 221, nor2 = 222, nor3 = 223, nor4 = 224
+    // Poland
+    case pol1 = 231, pol2 = 232, pol3 = 233, pol4 = 234
+    // Romania
+    case rou1 = 241, rou2 = 242, rou3 = 243, rou4 = 244
+    // Russia
+    case rus1 = 251, rus2 = 252, rus3 = 253, rus4 = 254
+    // Saudi Arabia
+    case ksa1 = 261, ksa2 = 262, ksa3 = 263, ksa4 = 264
+    // Serbia
+    case srb1 = 271, srb2 = 272, srb3 = 273, srb4 = 274
+    // Sweden
+    case swe1 = 281, swe2 = 282, swe3 = 283, swe4 = 284
+    // Switzerland
+    case sui1 = 291, sui2 = 292, sui3 = 293, sui4 = 294
+    // Ukraine
+    case ukr1 = 301, ukr2 = 302, ukr3 = 303, ukr4 = 304
+    // United States
+    case usa1 = 311, usa2 = 312, usa3 = 313, usa4 = 314
 
     // MARK: Back-compat aliases
     public static let premierLeague = LeagueTier.eng1
@@ -629,6 +671,7 @@ public enum LeagueTier: Int, Codable, CaseIterable, Identifiable, Comparable, Ha
 // MARK: - League Country
 
 public enum LeagueCountry: String, Codable, CaseIterable, Identifiable, Hashable {
+    // Indices 1-10: original shipped countries (order MUST stay stable).
     case england
     case spain
     case italy
@@ -639,6 +682,28 @@ public enum LeagueCountry: String, Codable, CaseIterable, Identifiable, Hashable
     case turkey
     case scotland
     case belgium
+    // Indices 11-31: appended from the Transfermarkt dataset.
+    case argentina
+    case australia
+    case austria
+    case brazil
+    case croatia
+    case czechRepublic
+    case denmark
+    case greece
+    case japan
+    case southKorea
+    case mexico
+    case norway
+    case poland
+    case romania
+    case russia
+    case saudiArabia
+    case serbia
+    case sweden
+    case switzerland
+    case ukraine
+    case unitedStates
 
     public var id: String { rawValue }
 
@@ -656,9 +721,30 @@ public enum LeagueCountry: String, Codable, CaseIterable, Identifiable, Hashable
         case .france: return "France"
         case .portugal: return "Portugal"
         case .netherlands: return "Netherlands"
-        case .turkey: return "Turkey"
+        case .turkey: return "Türkiye"
         case .scotland: return "Scotland"
         case .belgium: return "Belgium"
+        case .argentina: return "Argentina"
+        case .australia: return "Australia"
+        case .austria: return "Austria"
+        case .brazil: return "Brazil"
+        case .croatia: return "Croatia"
+        case .czechRepublic: return "Czech Republic"
+        case .denmark: return "Denmark"
+        case .greece: return "Greece"
+        case .japan: return "Japan"
+        case .southKorea: return "South Korea"
+        case .mexico: return "Mexico"
+        case .norway: return "Norway"
+        case .poland: return "Poland"
+        case .romania: return "Romania"
+        case .russia: return "Russia"
+        case .saudiArabia: return "Saudi Arabia"
+        case .serbia: return "Serbia"
+        case .sweden: return "Sweden"
+        case .switzerland: return "Switzerland"
+        case .ukraine: return "Ukraine"
+        case .unitedStates: return "United States"
         }
     }
 
@@ -675,6 +761,27 @@ public enum LeagueCountry: String, Codable, CaseIterable, Identifiable, Hashable
         case .turkey: return "TUR"
         case .scotland: return "SCO"
         case .belgium: return "BEL"
+        case .argentina: return "ARG"
+        case .australia: return "AUS"
+        case .austria: return "AUT"
+        case .brazil: return "BRA"
+        case .croatia: return "CRO"
+        case .czechRepublic: return "CZE"
+        case .denmark: return "DEN"
+        case .greece: return "GRE"
+        case .japan: return "JPN"
+        case .southKorea: return "KOR"
+        case .mexico: return "MEX"
+        case .norway: return "NOR"
+        case .poland: return "POL"
+        case .romania: return "ROU"
+        case .russia: return "RUS"
+        case .saudiArabia: return "KSA"
+        case .serbia: return "SRB"
+        case .sweden: return "SWE"
+        case .switzerland: return "SUI"
+        case .ukraine: return "UKR"
+        case .unitedStates: return "USA"
         }
     }
 
@@ -690,6 +797,27 @@ public enum LeagueCountry: String, Codable, CaseIterable, Identifiable, Hashable
         case .turkey: return "🇹🇷"
         case .scotland: return "🏴󠁧󠁢󠁳󠁣󠁴󠁿"
         case .belgium: return "🇧🇪"
+        case .argentina: return "🇦🇷"
+        case .australia: return "🇦🇺"
+        case .austria: return "🇦🇹"
+        case .brazil: return "🇧🇷"
+        case .croatia: return "🇭🇷"
+        case .czechRepublic: return "🇨🇿"
+        case .denmark: return "🇩🇰"
+        case .greece: return "🇬🇷"
+        case .japan: return "🇯🇵"
+        case .southKorea: return "🇰🇷"
+        case .mexico: return "🇲🇽"
+        case .norway: return "🇳🇴"
+        case .poland: return "🇵🇱"
+        case .romania: return "🇷🇴"
+        case .russia: return "🇷🇺"
+        case .saudiArabia: return "🇸🇦"
+        case .serbia: return "🇷🇸"
+        case .sweden: return "🇸🇪"
+        case .switzerland: return "🇨🇭"
+        case .ukraine: return "🇺🇦"
+        case .unitedStates: return "🇺🇸"
         }
     }
 
@@ -736,7 +864,28 @@ public enum LeagueCountry: String, Codable, CaseIterable, Identifiable, Hashable
         case (.belgium, 2): return "Challenger Pro League"
         case (.belgium, 3): return "Eerste Nationale"
         case (.belgium, 4): return "Tweede Nationale"
-        default: return "\(displayName) Tier \(level)"
+        case (.argentina, 1): return "Liga Profesional"
+        case (.australia, 1): return "A-League"
+        case (.austria, 1): return "Austrian Bundesliga"
+        case (.brazil, 1): return "Brasileirão Série A"
+        case (.croatia, 1): return "SuperSport HNL"
+        case (.czechRepublic, 1): return "Chance Liga"
+        case (.denmark, 1): return "Superliga"
+        case (.greece, 1): return "Super League Greece"
+        case (.japan, 1): return "J1 League"
+        case (.southKorea, 1): return "K League 1"
+        case (.mexico, 1): return "Liga MX"
+        case (.norway, 1): return "Eliteserien"
+        case (.poland, 1): return "Ekstraklasa"
+        case (.romania, 1): return "SuperLiga"
+        case (.russia, 1): return "Russian Premier League"
+        case (.saudiArabia, 1): return "Saudi Pro League"
+        case (.serbia, 1): return "Serbian SuperLiga"
+        case (.sweden, 1): return "Allsvenskan"
+        case (.switzerland, 1): return "Swiss Super League"
+        case (.ukraine, 1): return "Ukrainian Premier League"
+        case (.unitedStates, 1): return "Major League Soccer"
+        default: return "\(displayName) Division \(level)"
         }
     }
 
@@ -780,6 +929,27 @@ public enum LeagueCountry: String, Codable, CaseIterable, Identifiable, Hashable
         case (.belgium, 2): return 16
         case (.belgium, 3): return 18
         case (.belgium, 4): return 18
+        case (.argentina, 1): return 30
+        case (.australia, 1): return 12
+        case (.austria, 1): return 12
+        case (.brazil, 1): return 20
+        case (.croatia, 1): return 10
+        case (.czechRepublic, 1): return 16
+        case (.denmark, 1): return 12
+        case (.greece, 1): return 14
+        case (.japan, 1): return 20
+        case (.southKorea, 1): return 12
+        case (.mexico, 1): return 18
+        case (.norway, 1): return 16
+        case (.poland, 1): return 18
+        case (.romania, 1): return 16
+        case (.russia, 1): return 16
+        case (.saudiArabia, 1): return 18
+        case (.serbia, 1): return 16
+        case (.sweden, 1): return 16
+        case (.switzerland, 1): return 12
+        case (.ukraine, 1): return 16
+        case (.unitedStates, 1): return 30
         default: return 18
         }
     }
@@ -788,7 +958,7 @@ public enum LeagueCountry: String, Codable, CaseIterable, Identifiable, Hashable
     public var topFlightRelegationCount: Int {
         switch self {
         case .england, .spain, .italy, .germany, .france: return 3
-        case .portugal, .netherlands, .turkey, .scotland, .belgium: return 2
+        default: return 2
         }
     }
 
@@ -797,8 +967,8 @@ public enum LeagueCountry: String, Codable, CaseIterable, Identifiable, Hashable
         switch self {
         case .england, .spain, .italy, .germany: return 4
         case .france, .portugal, .netherlands: return 3
-        case .turkey, .belgium: return 2
-        case .scotland: return 1
+        case .turkey, .belgium, .austria, .greece, .czechRepublic, .scotland, .denmark, .croatia, .switzerland, .serbia, .norway, .sweden, .poland, .romania, .ukraine, .russia: return 2
+        default: return 1
         }
     }
 }
