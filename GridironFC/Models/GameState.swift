@@ -707,7 +707,7 @@ public final class GameState: Codable {
         } else {
             target = Double(offer.askingPrice)
         }
-        offer.counterFee = Int(max(offer.fee, target))
+        offer.counterFee = Int(max(Double(offer.fee), target))
         offer.negotiationRound += 1
         offer.status = .counterOffer
         offer.weeksUntilResponse = 1
@@ -1714,13 +1714,14 @@ public final class GameState: Codable {
         manager.age += 1
     }
 
-    public func addNews(headline: String, body: String, category: NewsCategory, sender: String = "Club News Desk") {
+    public func addNews(headline: String, body: String, category: NewsCategory, sender: String = "Club News Desk", transferOfferId: UUID? = nil) {
         let item = NewsItem(
             headline: headline,
             body: body,
             date: season.currentDate,
             category: category,
-            sender: sender
+            sender: sender,
+            transferOfferId: transferOfferId
         )
         news.insert(item, at: 0)
     }
