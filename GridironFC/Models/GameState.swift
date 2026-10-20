@@ -166,6 +166,48 @@ public final class GameState: Codable {
         return nil
     }
     
+    /// Every player in the world except the user's own squad, paired with their club
+    /// (nil for free agents). Used by the transfer search screen.
+    public func transferSearchCandidates() -> [(player: Player, club: Club?)] {
+        var results: [(Player, Club?)] = []
+        for club in clubs where !club.isUserClub {
+            for player in club.players {
+                results.append((player, club))
+            }
+        }
+        for freeAgent in freeAgents {
+            results.append((freeAgent, nil))
+        }
+        return results
+    }
+    
+    /// Filters transfer candidates by optional criteria.
+    public func searchPlayers(
+        positionCategory: PositionCategory? = nil,
+        specificPosition: Position? = nil,
+        minOverall: Int = 0,
+        maxAge: Int = 99,
+        maxFee: Int? = nil,
+        includeFreeAgents: Bool = true
+    ) -> [(player: Player, club: Club?)] {
+        transferSearchCandidates().filter { entry in
+            let player = entry.player
+            if let category = positionCategory,
+               !player.positions.contains(where: { $0.category == category }) {
+                return false
+            }
+            if let specific = specificPosition,
+               !player.positions.contains(specific) {
+                return false
+            }
+            if player.overall < minOverall { return false }
+            if player.age > maxAge { return false }
+            if !includeFreeAgents && entry.club == nil { return false }
+            if let maxFee = maxFee, let club = entry.club, player.value > maxFee { return false }
+            return true
+        }
+    }
+    
     // MARK: - Calendar & Progression
     
     /// Advances the in-game calendar by 1 day.
@@ -182,6 +224,60 @@ public final class GameState: Codable {
         season.currentDate = formatter.string(from: nextDate)
     }
     
+    /// Advances the in-game calendar day by day toward the user's next fixture.
+    /// Fixtures that do not involve the user's club are simulated as their matchweek
+    /// arrives, but the user's own match is left unplayed so they can manage and play it.
+    /// Returns `true` when it reaches the user's match day (caller should show Match Day).
+    @discardableResult
+    public func advanceCalendar() -> Bool {
+        if isEndOfSeason { return false }
+        guard let userClubId = userClubId,
+              let nextFixture = season.nextFixture(forClub: userClubId) else {
+            return false
+        }
+        
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        
+        guard var date = formatter.date(from: season.currentDate),
+              let targetDate = formatter.date(from: nextFixture.date) else {
+            return false
+        }
+        
+        // Step one day at a time so any intervening matchweeks get simulated.
+        while date < targetDate {
+            date = Calendar.current.date(byAdding: .day, value: 1, to: date) ?? targetDate
+            season.currentDate = formatter.string(from: date)
+            simulateDueWeeks(excludingUserMatch: true)
+        }
+        
+        // Arrived at match day: surface the user's fixture and their matchweek.
+        season.currentWeek = nextFixture.matchWeek
+        activeMatchFixtureId = nextFixture.id
+        return true
+    }
+    
+    /// Simulates every unplayed fixture in matchweeks whose date has already passed,
+    /// optionally leaving the user's own fixtures for the player to manage.
+    private func simulateDueWeeks(excludingUserMatch: Bool) {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        guard let today = formatter.date(from: season.currentDate) else { return }
+        
+        for idx in season.fixtures.indices {
+            let fixture = season.fixtures[idx]
+            guard !fixture.isPlayed else { continue }
+            guard let fixtureDate = formatter.date(from: fixture.date) else { continue }
+            guard fixtureDate <= today else { continue }
+            if excludingUserMatch, let userClubId, fixture.involves(clubId: userClubId) {
+                continue
+            }
+            simulateMatch(fixture: &season.fixtures[idx])
+        }
+    }
+
     /// Simulates every remaining unplayed fixture in the current matchweek, then
     /// performs weekly upkeep (fitness, finances, AI transfers), advances the
     /// calendar, and checks for season completion. Shared by `advanceWeek()` and
@@ -578,6 +674,23 @@ public final class GameState: Codable {
             body: "The board at \(clubs[idx].name) have appointed you as first-team manager at \(clubs[idx].stadium).",
             category: .general
         )
+        addNews(
+            headline: "Board Objectives for \(season.year)",
+            body: "The board expect \(clubs[idx].name) to be competitive in the \(clubs[idx].leagueTier.displayName). Transfer budget: \(Player.formatCurrency(clubs[idx].finances.transferBudget)).",
+            category: .general
+        )
+        addNews(
+            headline: "Transfer Window Open",
+            body: "The transfer window is now open. Head to the Transfers tab and use Search & Sign Players to strengthen your squad.",
+            category: .transfer
+        )
+        if !freeAgents.isEmpty {
+            addNews(
+                headline: "\(freeAgents.count) Free Agents Available",
+                body: "Our scouts have identified \(freeAgents.count) unattached players. Several could improve the squad at no transfer cost.",
+                category: .transfer
+            )
+        }
         return clubs[idx]
     }
     

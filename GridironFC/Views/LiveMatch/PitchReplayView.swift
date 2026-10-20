@@ -383,6 +383,9 @@ public struct LiveMatchView: View {
         }
         for ev in newEvents {
             AccessibilityNotification.Announcement(ev.detailText).post()
+            if ev.type == .goal {
+                SoundManager.shared.play(.goal, enabled: gameState.soundEnabled)
+            }
         }
     }
     

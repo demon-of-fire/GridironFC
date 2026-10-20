@@ -58,6 +58,7 @@ public enum TabDestination: String, CaseIterable, Identifiable {
     case tactics = "Tactics"
     case league = "League"
     case transfers = "Transfers"
+    case inbox = "Inbox"
     
     public var id: String { rawValue }
     
@@ -68,6 +69,7 @@ public enum TabDestination: String, CaseIterable, Identifiable {
         case .tactics: return "list.bullet.clipboard.fill"
         case .league: return "trophy.fill"
         case .transfers: return "arrow.left.arrow.right"
+        case .inbox: return "tray.full.fill"
         }
     }
 }
@@ -109,6 +111,12 @@ public struct InGameTabView: View {
                     Label(TabDestination.transfers.rawValue, systemImage: TabDestination.transfers.iconName)
                 }
                 .tag(TabDestination.transfers)
+            
+            MailboxView()
+                .tabItem {
+                    Label(TabDestination.inbox.rawValue, systemImage: TabDestination.inbox.iconName)
+                }
+                .tag(TabDestination.inbox)
         }
         .navigationTitle(navigationTitleForTab(selectedTab))
         .navigationBarTitleDisplayMode(.inline)
@@ -633,12 +641,12 @@ public struct DashboardView: View {
                 Button(action: {
                     if gameState.isEndOfSeason {
                         gameState.startNewSeason()
-                    } else {
-                        gameState.advanceWeek()
+                    } else if gameState.advanceCalendar() {
+                        gameState.currentScreen = .matchDay
                     }
                 }) {
                     HStack {
-                        Image(systemName: gameState.isEndOfSeason ? "arrow.triangle.2.circlepath.circle.fill" : "play.circle.fill")
+                        Image(systemName: gameState.isEndOfSeason ? "arrow.triangle.2.circlepath.circle.fill" : "calendar")
                             .font(.title2)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(gameState.isEndOfSeason ? "Start New Season" : "Continue")
@@ -658,8 +666,8 @@ public struct DashboardView: View {
                     .foregroundStyle(.white)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
-                .accessibilityLabel("Continue")
-                .accessibilityHint("Advances the calendar and simulates pending matches")
+                .accessibilityLabel(gameState.isEndOfSeason ? "Start new season" : "Continue")
+                .accessibilityHint("Advances the calendar to your next match day")
 
                 // Next Match Card
                 if let nextFixture = gameState.nextUserFixture,
@@ -668,7 +676,7 @@ public struct DashboardView: View {
                    let opponent = gameState.club(withId: opponentId) {
                     
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Next Match")
+                        Text(isMatchDay ? "Match Day" : "Next Match")
                             .font(.subheadline)
                             .fontWeight(.medium)
                             .foregroundStyle(.secondary)
@@ -694,6 +702,9 @@ public struct DashboardView: View {
                                 Text("Matchweek \(nextFixture.matchWeek)")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
+                                Text(nextFixture.date)
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
                             }
                             
                             Spacer()
@@ -708,20 +719,6 @@ public struct DashboardView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        
-                        Button(action: {
-                            gameState.activeMatchFixtureId = nextFixture.id
-                            gameState.currentScreen = .matchDay
-                        }) {
-                            Text("Prepare for Match")
-                                .fontWeight(.semibold)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 10)
-                                .background(Color.accentColor)
-                                .foregroundStyle(.white)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                        }
-                        .accessibilityLabel("Prepare for match against \(opponent.name)")
                     }
                     .padding()
                     .background(Color(UIColor.secondarySystemGroupedBackground))
@@ -844,10 +841,18 @@ public struct DashboardView: View {
         if gameState.isEndOfSeason {
             return "Season \(gameState.season.year) complete — begin next campaign"
         }
+        if isMatchDay {
+            return "Match day — tap to play your fixture"
+        }
         if let fixture = gameState.nextUserFixture {
             return "Next: Matchweek \(fixture.matchWeek) • \(fixture.date)"
         }
         return "Advance to the next calendar week"
+    }
+
+    private var isMatchDay: Bool {
+        guard let fixture = gameState.nextUserFixture else { return false }
+        return fixture.date == gameState.season.currentDate
     }
 }
 
@@ -1168,6 +1173,11 @@ public struct TransferHubView: View {
                         Text("\(Player.formatCurrency(userClub.finances.weeklyWageSurplus))/w")
                             .fontWeight(.bold)
                     }
+                    NavigationLink(destination: PlayerSearchView()) {
+                        Label("Search & Sign Players", systemImage: "magnifyingglass")
+                            .fontWeight(.semibold)
+                    }
+                    .accessibilityHint("Browse the transfer market with filters")
                 }
             }
             
@@ -1204,6 +1214,101 @@ public struct TransferHubView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Player Search / Transfer Market
+
+public struct PlayerSearchView: View {
+    @Environment(GameState.self) private var gameState
+
+    @State private var positionCategory: PositionCategory? = nil
+    @State private var minOverall = 0
+    @State private var maxAge = 99
+    @State private var includeFreeAgents = true
+    @State private var maxFeeFilter: Int? = nil
+    @State private var sortMode: SortMode = .overall
+
+    enum SortMode: String, CaseIterable, Identifiable {
+        case overall = "Rating"
+        case value = "Value"
+        case age = "Age"
+        case name = "Name"
+        var id: String { rawValue }
+    }
+
+    private var results: [(player: Player, club: Club?)] {
+        let base = gameState.searchPlayers(
+            positionCategory: positionCategory,
+            minOverall: minOverall,
+            maxAge: maxAge,
+            maxFee: maxFeeFilter,
+            includeFreeAgents: includeFreeAgents
+        )
+        switch sortMode {
+        case .overall: return base.sorted { $0.player.overall > $1.player.overall }
+        case .value: return base.sorted { $0.player.value > $1.player.value }
+        case .age: return base.sorted { $0.player.age < $1.player.age }
+        case .name: return base.sorted { $0.player.lastName < $1.player.lastName }
+        }
+    }
+
+    public var body: some View {
+        List {
+            Section(header: Text("Filters")) {
+                Picker("Position", selection: $positionCategory) {
+                    Text("Any").tag(PositionCategory?.none)
+                    ForEach(PositionCategory.allCases) { category in
+                        Text(category.displayName).tag(PositionCategory?.some(category))
+                    }
+                }
+
+                Picker("Sort By", selection: $sortMode) {
+                    ForEach(SortMode.allCases) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+
+                HStack {
+                    Text("Min Rating: \(minOverall)")
+                    Slider(value: Binding(
+                        get: { Double(minOverall) },
+                        set: { minOverall = Int($0) }
+                    ), in: 0...99, step: 1)
+                }
+
+                HStack {
+                    Text("Max Age: \(maxAge == 99 ? "Any" : "\(maxAge)")")
+                    Slider(value: Binding(
+                        get: { Double(maxAge) },
+                        set: { maxAge = Int($0) }
+                    ), in: 16...40, step: 1)
+                }
+
+                Toggle("Include Free Agents", isOn: $includeFreeAgents)
+            }
+
+            Section(header: Text("\(results.count) Players Found")) {
+                if results.isEmpty {
+                    Text("No players match your filters.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(results.prefix(80), id: \.player.id) { entry in
+                        NavigationLink(destination: PlayerDetailView(playerId: entry.player.id)) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                PlayerRowView(player: entry.player)
+                                Text(entry.club?.name ?? "Free Agent")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Transfer Market")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -1375,6 +1480,34 @@ public struct PostMatchView: View {
                             .foregroundStyle(.secondary)
                     }
                     
+                    // Rest of the league's results for this matchweek.
+                    let otherResults = otherResultsThisWeek(for: fixture)
+                    if !otherResults.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Elsewhere in Matchweek \(fixture.matchWeek)")
+                                .font(.headline)
+                            ForEach(otherResults, id: \.fixture.id) { entry in
+                                HStack {
+                                    Text(entry.homeName)
+                                        .font(.subheadline)
+                                        .frame(maxWidth: .infinity, alignment: .trailing)
+                                    Text("\(entry.result.homeGoals) - \(entry.result.awayGoals)")
+                                        .font(.subheadline)
+                                        .fontWeight(.bold)
+                                        .padding(.horizontal, 8)
+                                    Text(entry.awayName)
+                                        .font(.subheadline)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(UIColor.secondarySystemGroupedBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .padding(.horizontal)
+                    }
+                    
                     VStack(spacing: 12) {
                         Button(action: {
                             gameState.currentScreen = .matchHistory
@@ -1419,6 +1552,17 @@ public struct PostMatchView: View {
             default: SoundManager.shared.play(.draw, enabled: gameState.soundEnabled)
             }
         }
+    }
+
+    private func otherResultsThisWeek(for fixture: Fixture) -> [(fixture: Fixture, homeName: String, awayName: String, result: MatchResult)] {
+        gameState.season.fixtures(forWeek: fixture.matchWeek)
+            .filter { $0.isPlayed && $0.id != fixture.id && $0.competition == fixture.competition }
+            .compactMap { f in
+                guard let result = f.result,
+                      let home = gameState.club(withId: f.homeClubId),
+                      let away = gameState.club(withId: f.awayClubId) else { return nil }
+                return (f, home.shortName, away.shortName, result)
+            }
     }
 }
 
@@ -1674,6 +1818,19 @@ public struct SettingsView: View {
             }
         }
         .navigationTitle("Settings & Saves")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") {
+                    if gameState.userClub != nil {
+                        gameState.currentScreen = .dashboard
+                    } else {
+                        gameState.currentScreen = .mainMenu
+                    }
+                }
+                .accessibilityLabel("Close settings")
+            }
+        }
         .alert(isPresented: $showAlert) {
             Alert(title: Text("Save Manager"), message: Text(alertMessage ?? ""), dismissButton: .default(Text("OK")))
         }

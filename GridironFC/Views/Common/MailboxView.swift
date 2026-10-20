@@ -48,6 +48,14 @@ public struct MailboxView: View {
         }
         .navigationTitle("Inbox")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") {
+                    gameState.currentScreen = .dashboard
+                }
+                .accessibilityLabel("Close inbox")
+            }
+        }
     }
 
     private func filterChip(_ category: NewsCategory?, label: String) -> some View {
@@ -125,6 +133,14 @@ public struct MatchHistoryView: View {
         }
         .navigationTitle("Match History")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") {
+                    gameState.currentScreen = .dashboard
+                }
+                .accessibilityLabel("Close match history")
+            }
+        }
     }
 }
 
