@@ -18,14 +18,23 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Select Xcode 15.4+
+      - name: Select Xcode (latest available)
         run: |
-          sudo xcode-select -s /Applications/Xcode_15.4.app || sudo xcode-select -s /Applications/Xcode.app
+          # Default Xcode on macos-14 is typically 15.x, but newer XcodeGen emits
+          # a newer project objectVersion than Xcode 15 can open. Prefer the
+          # newest Xcode present on the runner so the generated project opens.
+          LATEST=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$LATEST" ]; then
+            sudo xcode-select -s "$LATEST"
+          fi
           xcodebuild -version
+          xcode-select -p
+          ls -d /Applications/Xcode*.app 2>/dev/null || true
 
       - name: Install XcodeGen
         run: |
           brew install xcodegen
+          xcodegen --version
 
       - name: Locate Project Spec
         id: locate
@@ -38,13 +47,14 @@ jobs:
             echo "Could not find project.yml" >&2
             exit 1
           fi
-          echo "Using project directory: $(cat "$GITHUB_OUTPUT" | tail -1)"
+          echo "Using project directory: $(tail -1 "$GITHUB_OUTPUT")"
 
       - name: Generate Xcode Project
         working-directory: ${{ steps.locate.outputs.projdir }}
         run: |
           xcodegen generate
           ls -la
+          grep -m1 objectVersion GridironFC.xcodeproj/project.pbxproj || true
 
       - name: (Optional) Install Apple Developer Certificates & Provisioning Profile
         env:
