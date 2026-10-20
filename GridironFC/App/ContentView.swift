@@ -26,6 +26,12 @@ public struct ContentView: View {
                 ClubSelectView()
             case .playerCreation:
                 PlayerCreationView()
+            case .managerCreation:
+                ManagerCreationView()
+            case .jobOffers:
+                JobOffersView()
+            case .managerProfile:
+                ManagerProfileView()
             case .dashboard, .squad, .tactics, .standings, .fixtures, .results, .transferHub, .playerSearch, .training, .staff, .finances:
                 InGameTabView(selectedTab: $selectedTab)
             case .matchDay:
@@ -141,6 +147,19 @@ public struct InGameTabView: View {
                     } label: {
                         Label("Match History", systemImage: "sportscourt")
                     }
+                    Button {
+                        gameState.currentScreen = .managerProfile
+                    } label: {
+                        Label("My Profile", systemImage: "person.crop.circle")
+                    }
+                    Button {
+                        gameState.currentScreen = .jobOffers
+                    } label: {
+                        Label(
+                            gameState.jobOffers.isEmpty ? "Job Offers" : "Job Offers (\(gameState.jobOffers.count))",
+                            systemImage: "briefcase"
+                        )
+                    }
                     Divider()
                     Button {
                         gameState.currentScreen = .settings
@@ -245,14 +264,8 @@ public struct MainMenuView: View {
     
     private func startMode(_ mode: GameMode) {
         gameState.gameMode = mode
-        switch mode {
-        case .createClub:
-            gameState.currentScreen = .clubCreation
-        case .manageClub:
-            gameState.currentScreen = .clubSelect
-        case .createPlayer:
-            gameState.currentScreen = .playerCreation
-        }
+        // Every career mode now begins with manager customisation.
+        gameState.currentScreen = .managerCreation
     }
 }
 
@@ -305,6 +318,7 @@ public struct GameModeCard: View {
         case .createClub: return "shield.lefthalf.filled"
         case .manageClub: return "person.badge.shield.checkmark.fill"
         case .createPlayer: return "figure.soccer"
+        case .unemployed: return "briefcase.fill"
         }
     }
 }
@@ -631,12 +645,375 @@ public struct PlayerCreationView: View {
     }
 }
 
+// MARK: - Manager Creation Screen
+
+public struct ManagerCreationView: View {
+    @Environment(GameState.self) private var gameState
+
+    @State private var firstName = "Alex"
+    @State private var lastName = "Morgan"
+    @State private var nationality: ManagerNationality = .england
+    @State private var age = 38
+
+    // Coaching attributes (allocatable pool keeps it feel like a builder).
+    @State private var tactical = 55
+    @State private var attacking = 55
+    @State private var defending = 55
+    @State private var youth = 55
+
+    private var previewProfile: ManagerProfile {
+        ManagerProfile(
+            firstName: firstName.isEmpty ? "New" : firstName,
+            lastName: lastName.isEmpty ? "Manager" : lastName,
+            nationality: nationality.rawValue,
+            age: age,
+            faceSeed: ManagerProfile.generateSeed(first: firstName, last: lastName),
+            tactical: tactical,
+            attacking: attacking,
+            defending: defending,
+            youthDevelopment: youth,
+            reputation: reputationForMode
+        )
+    }
+
+    /// Reputation the manager starts with, seeded by the chosen career mode.
+    private var reputationForMode: Int {
+        switch gameState.gameMode {
+        case .unemployed: return 15
+        case .createClub: return 10
+        case .manageClub: return 40
+        case .createPlayer: return 30
+        }
+    }
+
+    public var body: some View {
+        Form {
+            Section(header: Text("Manager Identity")) {
+                TextField("First Name", text: $firstName)
+                    .accessibilityLabel("Manager first name")
+                TextField("Last Name", text: $lastName)
+                    .accessibilityLabel("Manager last name")
+                Picker("Nationality", selection: $nationality) {
+                    ForEach(ManagerNationality.allCases) { nat in
+                        Text("\(nat.flag) \(nat.rawValue)").tag(nat)
+                    }
+                }
+                Stepper("Age: \(age)", value: $age, in: 30...70)
+            }
+
+            Section(header: Text("Preview")) {
+                HStack(spacing: 16) {
+                    FaceView(seed: previewProfile.faceSeed, size: 72, style: .full)
+                        .frame(width: 72, height: 72)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(previewProfile.fullName)
+                            .font(.headline)
+                        Text("\(previewProfile.flag) \(nationality.rawValue) • Age \(age)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("Reputation \(reputationForMode)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Section(header: Text("Coaching Attributes")) {
+                attributeSlider(title: CoachingAttribute.tactical.displayName, value: $tactical)
+                attributeSlider(title: CoachingAttribute.attacking.displayName, value: $attacking)
+                attributeSlider(title: CoachingAttribute.defending.displayName, value: $defending)
+                attributeSlider(title: CoachingAttribute.youthDevelopment.displayName, value: $youth)
+            }
+
+            Section {
+                Button(action: launch) {
+                    Text("Confirm Manager")
+                        .fontWeight(.bold)
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(firstName.trimmingCharacters(in: .whitespaces).isEmpty)
+                .accessibilityLabel("Confirm manager and continue")
+            }
+        }
+        .navigationTitle("Create Your Manager")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func attributeSlider(title: String, value: Binding<Int>) -> some View {
+        HStack {
+            Text(title)
+                .font(.subheadline)
+            Spacer()
+            Text("\(value.wrappedValue)")
+                .font(.subheadline)
+                .fontWeight(.bold)
+                .frame(width: 28, alignment: .trailing)
+        }
+        Slider(value: Binding(
+            get: { Double(value.wrappedValue) },
+            set: { value.wrappedValue = Int($0) }
+        ), in: 20...90, step: 1)
+    }
+
+    private func launch() {
+        gameState.manager = previewProfile
+        switch gameState.gameMode {
+        case .createClub:
+            gameState.currentScreen = .clubCreation
+        case .manageClub:
+            gameState.currentScreen = .clubSelect
+        case .createPlayer:
+            gameState.currentScreen = .playerCreation
+        case .unemployed:
+            // No club; generate an initial slate of job offers and drop the user
+            // straight into the Job Offers screen.
+            gameState.goUnemployed()
+            gameState.generateJobOffers(maxCount: 5)
+            try? SaveManager.shared.autoSave(gameState: gameState)
+            gameState.currentScreen = .jobOffers
+        }
+    }
+}
+
+// MARK: - Job Offers Screen
+
+public struct JobOffersView: View {
+    @Environment(GameState.self) private var gameState
+
+    public var body: some View {
+        List {
+            Section {
+                if gameState.isUnemployed {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Currently Unemployed", systemImage: "briefcase")
+                            .font(.headline)
+                        Text("You have no club. Accept a role below to begin your managerial career.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let club = gameState.userClub {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("In Charge of \(club.name)", systemImage: "checkmark.seal.fill")
+                            .font(.headline)
+                            .foregroundStyle(.green)
+                        Text("Accepting another role will end your current stint at \(club.name).")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Section(header: Text("Offers (\(gameState.jobOffers.count))")) {
+                if gameState.jobOffers.isEmpty {
+                    VStack(spacing: 10) {
+                        Text("No offers on the table right now.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Button("Search for Vacancies") {
+                            gameState.generateJobOffers(maxCount: 5)
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 8)
+                } else {
+                    ForEach(gameState.jobOffers) { offer in
+                        offerRow(offer)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Job Offers")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") {
+                    gameState.currentScreen = gameState.userClub == nil ? .jobOffers : .dashboard
+                }
+                .accessibilityLabel("Close job offers")
+            }
+        }
+    }
+
+    private func offerRow(_ offer: JobOffer) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: offer.kind.iconName)
+                    .foregroundStyle(Color.accentColor)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(offer.teamName)
+                        .font(.headline)
+                    Text("\(offer.leagueName) • Reputation \(offer.reputation)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+
+            HStack(spacing: 12) {
+                Button {
+                    gameState.acceptJobOffer(offer)
+                    try? SaveManager.shared.autoSave(gameState: gameState)
+                    gameState.currentScreen = .dashboard
+                } label: {
+                    Label("Accept", systemImage: "checkmark")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button {
+                    gameState.declineJobOffer(offer)
+                } label: {
+                    Label("Decline", systemImage: "xmark")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(offer.kind.displayName), \(offer.teamName), \(offer.leagueName), reputation \(offer.reputation)")
+    }
+}
+
+// MARK: - Manager Profile Screen
+
+public struct ManagerProfileView: View {
+    @Environment(GameState.self) private var gameState
+
+    public var body: some View {
+        List {
+            Section {
+                HStack(spacing: 16) {
+                    FaceView(seed: gameState.manager.faceSeed, size: 72, style: .full)
+                        .frame(width: 72, height: 72)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(gameState.manager.fullName)
+                            .font(.title3)
+                            .fontWeight(.bold)
+                        Text("\(gameState.manager.flag) \(gameState.manager.nationality) • Age \(gameState.manager.age)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if let club = gameState.userClub {
+                            Text("Manager of \(club.name)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Currently Unemployed")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                }
+            }
+
+            Section(header: Text("Reputation")) {
+                HStack {
+                    Text("Reputation")
+                    Spacer()
+                    Text("\(gameState.manager.reputation)")
+                        .fontWeight(.bold)
+                }
+                ProgressView(value: Double(gameState.manager.reputation), total: 100)
+            }
+
+            Section(header: Text("Coaching Attributes")) {
+                attributeRow(.tactical, value: gameState.manager.tactical)
+                attributeRow(.attacking, value: gameState.manager.attacking)
+                attributeRow(.defending, value: gameState.manager.defending)
+                attributeRow(.youthDevelopment, value: gameState.manager.youthDevelopment)
+            }
+
+            Section(header: Text("Career History")) {
+                if gameState.manager.careerHistory.isEmpty {
+                    Text("No completed seasons yet. Finish a campaign to build your record.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(gameState.manager.careerHistory.reversed()) { record in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("\(record.seasonYear) — \(record.clubName)")
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                Spacer()
+                                Text(record.finalPosition > 0 ? "P\(record.finalPosition)" : "—")
+                                    .font(.subheadline)
+                                    .fontWeight(.bold)
+                            }
+                            Text("\(record.leagueName) • P\(record.played) W\(record.won) D\(record.drawn) L\(record.lost) • \(Int(record.winPercentage))% win rate")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            ForEach(record.honours, id: \.self) { honour in
+                                Label(honour, systemImage: "trophy.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.yellow)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("My Profile")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") {
+                    gameState.currentScreen = gameState.userClub == nil ? .jobOffers : .dashboard
+                }
+                .accessibilityLabel("Close profile")
+            }
+        }
+    }
+
+    private func attributeRow(_ attr: CoachingAttribute, value: Int) -> some View {
+        HStack {
+            Label(attr.displayName, systemImage: attr.iconName)
+                .font(.subheadline)
+            Spacer()
+            Text("\(value)")
+                .font(.subheadline)
+                .fontWeight(.bold)
+        }
+    }
+}
+
 public struct DashboardView: View {
     @Environment(GameState.self) private var gameState
-    
     public var body: some View {
         ScrollView {
             VStack(spacing: 20) {
+                // Unemployed: surface job offers as the primary action.
+                if gameState.isUnemployed {
+                    Button(action: {
+                        gameState.generateJobOffers(maxCount: 5)
+                        gameState.currentScreen = .jobOffers
+                    }) {
+                        HStack {
+                            Image(systemName: "briefcase.fill")
+                                .font(.title2)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Job Offers")
+                                    .font(.headline)
+                                Text(gameState.jobOffers.isEmpty
+                                     ? "You are unemployed — search for vacancies"
+                                     : "\(gameState.jobOffers.count) club(s) interested in you")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.85))
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.footnote)
+                                .foregroundStyle(.white.opacity(0.8))
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(Color.accentColor)
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+                    .accessibilityLabel("Job offers")
+                } else {
                 // Primary action: single Continue button
                 Button(action: {
                     if gameState.isEndOfSeason {
@@ -668,6 +1045,7 @@ public struct DashboardView: View {
                 }
                 .accessibilityLabel(gameState.isEndOfSeason ? "Start new season" : "Continue")
                 .accessibilityHint("Advances the calendar to your next match day")
+                }
 
                 // Next Match Card
                 if let nextFixture = gameState.nextUserFixture,
@@ -1430,6 +1808,40 @@ public struct PostMatchView: View {
                         }
                     }
                     
+                    // Player of the Match
+                    if let potm = potmPlayer(for: res) {
+                        VStack(spacing: 8) {
+                            Text("Player of the Match")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                                .foregroundStyle(.secondary)
+                            HStack(spacing: 12) {
+                                FaceView(player: potm.player, size: 52, style: .full)
+                                    .frame(width: 52, height: 52)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(potm.player.fullName)
+                                        .font(.headline)
+                                    Text("\(potm.clubName) • \(potm.player.primaryPosition.abbreviation)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                VStack(spacing: 2) {
+                                    Image(systemName: "star.fill")
+                                        .foregroundStyle(.yellow)
+                                    Text(String(format: "%.1f", potm.rating))
+                                        .font(.headline)
+                                        .fontWeight(.bold)
+                                }
+                            }
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(UIColor.secondarySystemGroupedBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .padding(.horizontal)
+                    }
+                    
                     // Goal timeline
                     if !res.goalEvents.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
@@ -1563,6 +1975,20 @@ public struct PostMatchView: View {
                       let away = gameState.club(withId: f.awayClubId) else { return nil }
                 return (f, home.shortName, away.shortName, result)
             }
+    }
+
+    /// Resolves the match's Player of the Match into a displayable tuple.
+    /// Prefers the engine-designated MOTM, falling back to the highest-rated
+    /// player if none was recorded.
+    private func potmPlayer(for res: MatchResult) -> (player: Player, clubName: String, rating: Double)? {
+        var playerId = res.manOfTheMatch
+        if playerId == nil {
+            playerId = res.playerRatings.max(by: { $0.value < $1.value })?.key
+        }
+        guard let id = playerId,
+              let lookup = gameState.player(withId: id) else { return nil }
+        let rating = res.playerRatings[id] ?? 0
+        return (lookup.player, lookup.club?.name ?? "Unknown", rating)
     }
 }
 

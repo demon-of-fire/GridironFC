@@ -650,6 +650,7 @@ public enum GameMode: String, Codable, CaseIterable, Identifiable, Hashable {
     case createClub
     case manageClub
     case createPlayer
+    case unemployed
     
     public var id: String { rawValue }
     
@@ -658,6 +659,7 @@ public enum GameMode: String, Codable, CaseIterable, Identifiable, Hashable {
         case .createClub: return "Create a Club"
         case .manageClub: return "Manage Existing Club"
         case .createPlayer: return "Create a Player"
+        case .unemployed: return "Start Unemployed"
         }
     }
     
@@ -669,6 +671,8 @@ public enum GameMode: String, Codable, CaseIterable, Identifiable, Hashable {
             return "Take charge of an existing English club with real squads and established expectations."
         case .createPlayer:
             return "Guide a single player's career through European football."
+        case .unemployed:
+            return "Begin without a club and wait for job offers. Work your way up from the bottom."
         }
     }
 }
@@ -747,6 +751,9 @@ public enum AppScreen: Hashable, Codable {
     case clubCreation
     case clubSelect
     case playerCreation
+    case managerCreation
+    case jobOffers
+    case managerProfile
     case dashboard
     case squad
     case tactics
@@ -783,6 +790,12 @@ public enum AppScreen: Hashable, Codable {
             try container.encode("clubSelect", forKey: .screenType)
         case .playerCreation:
             try container.encode("playerCreation", forKey: .screenType)
+        case .managerCreation:
+            try container.encode("managerCreation", forKey: .screenType)
+        case .jobOffers:
+            try container.encode("jobOffers", forKey: .screenType)
+        case .managerProfile:
+            try container.encode("managerProfile", forKey: .screenType)
         case .dashboard:
             try container.encode("dashboard", forKey: .screenType)
         case .squad:
@@ -833,6 +846,9 @@ public enum AppScreen: Hashable, Codable {
         case "clubCreation": self = .clubCreation
         case "clubSelect": self = .clubSelect
         case "playerCreation": self = .playerCreation
+        case "managerCreation": self = .managerCreation
+        case "jobOffers": self = .jobOffers
+        case "managerProfile": self = .managerProfile
         case "dashboard": self = .dashboard
         case "squad": self = .squad
         case "tactics": self = .tactics

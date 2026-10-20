@@ -62,6 +62,10 @@ public final class GameState: Codable {
     // Preferences
     public var soundEnabled: Bool
     
+    // Managerial Career
+    public var manager: ManagerProfile
+    public var jobOffers: [JobOffer]
+    
     // MARK: - Initializer
     
     public init(
@@ -79,7 +83,9 @@ public final class GameState: Codable {
         isMatchInProgress: Bool = false,
         activeMatchFixtureId: UUID? = nil,
         negotiationTargetPlayerId: UUID? = nil,
-        soundEnabled: Bool = true
+        soundEnabled: Bool = true,
+        manager: ManagerProfile = ManagerProfile(),
+        jobOffers: [JobOffer] = []
     ) {
         self.gameMode = gameMode
         self.clubs = clubs
@@ -96,6 +102,8 @@ public final class GameState: Codable {
         self.activeMatchFixtureId = activeMatchFixtureId
         self.negotiationTargetPlayerId = negotiationTargetPlayerId
         self.soundEnabled = soundEnabled
+        self.manager = manager
+        self.jobOffers = jobOffers
     }
     
     // MARK: - Computed Properties
@@ -103,6 +111,12 @@ public final class GameState: Codable {
     public var userClub: Club? {
         guard let id = userClubId else { return nil }
         return clubs.first { $0.id == id }
+    }
+    
+    /// True when the user has a manager profile but no club (started unemployed
+    /// or between jobs).
+    public var isUnemployed: Bool {
+        return userClub == nil
     }
     
     public var currentLeague: League? {
@@ -622,7 +636,7 @@ public final class GameState: Codable {
             reputation: 45,
             isUserClub: true,
             players: [],
-            manager: "You"
+            manager: manager.fullName
         )
         
         // Substitute in clubs array
@@ -667,6 +681,7 @@ public final class GameState: Codable {
             clubs[otherIdx].isUserClub = (otherIdx == idx)
         }
         clubs[idx].ensureTacticalIntegrity()
+        clubs[idx].manager = manager.fullName
         self.userClubId = clubId
         
         addNews(
@@ -892,6 +907,23 @@ public final class GameState: Codable {
             )
         }
         
+        // Snapshot the user's season into their managerial career history.
+        if let userClub = userClub, let table = finalTables[userClub.leagueTier],
+           let pos = table.firstIndex(where: { $0.clubId == userClub.id }) {
+            let standing = table[pos]
+            var honours: [String] = []
+            if pos == 0 { honours.append("\(userClub.leagueTier.displayName) Champions") }
+            recordManagerSeason(
+                club: userClub,
+                position: pos + 1,
+                played: standing.played,
+                won: standing.won,
+                drawn: standing.drawn,
+                lost: standing.lost,
+                honours: honours
+            )
+        }
+        
         addNews(
             headline: "Season \(season.year) Concludes!",
             body: "The final standings have been locked. Congratulations to all champions and promoted clubs. Tap 'Start New Season' on the Home screen to begin the next campaign.",
@@ -969,8 +1001,154 @@ public final class GameState: Codable {
         return Double.random(in: 0...1) < higherChance ? higher : lower
     }
     
-    public func addNews(headline: String, body: String, category: NewsCategory) {
-        let item = NewsItem(
+    // MARK: - Managerial Career & Job Offers
+
+    /// Clears any club association, leaving the user unemployed but with a
+    /// manager profile intact.
+    public func goUnemployed() {
+        userClubId = nil
+        for idx in 0..<clubs.count {
+            clubs[idx].isUserClub = false
+        }
+    }
+
+    /// Builds a pool of realistic job offers for the user based on their current
+    /// reputation. Vacancies skew toward clubs whose reputation is within reach
+    /// of the manager's own standing; unemployed users see more low-reputation
+    /// openings, successful managers attract bigger clubs.
+    public func generateJobOffers(maxCount: Int = 4, excludeUserClub: Bool = true) {
+        guard clubs.count > 2 else { return }
+
+        let userRep = manager.reputation
+        let userClubIdLocal = userClubId
+
+        let candidates = clubs.filter { club in
+            if excludeUserClub, let uid = userClubIdLocal, club.id == uid { return false }
+            // Only clubs at or below the manager's reach (allow some stretch upward).
+            return club.reputation <= userRep + 15
+        }
+
+        // Weight selection toward the best-fitting roles without randomising the
+        // whole world every week — offers are generated on demand (job screen / news).
+        let sorted = candidates.sorted { $0.reputation > $1.reputation }
+        var newOffers: [JobOffer] = []
+        for club in sorted.prefix(max(count: maxCount * 3, count: maxCount)) {
+            let league = leagues.first { $0.tier == club.leagueTier }
+            let wage = max(1_000, club.finances.wageBudget / 40)
+            newOffers.append(
+                JobOffer(
+                    clubId: club.id,
+                    kind: .club,
+                    teamName: club.name,
+                    leagueName: league?.name ?? club.leagueTier.displayName,
+                    reputation: club.reputation,
+                    offeredWage: wage,
+                    seasonYear: season.year
+                )
+            )
+        }
+
+        // Shuffle a little so the ordering isn't strictly by reputation.
+        newOffers.shuffle()
+        let chosen = Array(newOffers.prefix(maxCount))
+
+        // De-duplicate against offers we already hold.
+        let existingClubIds = Set(jobOffers.compactMap { $0.clubId })
+        let fresh = chosen.filter { offer in
+            guard let cid = offer.clubId else { return true }
+            return !existingClubIds.contains(cid)
+        }
+        jobOffers.append(contentsOf: fresh)
+
+        for offer in fresh {
+            addNews(
+                headline: "\(offer.teamName) Approach You",
+                body: "\(offer.teamName) of the \(offer.leagueName) would like you to become their next manager. Visit Job Offers to respond.",
+                category: .general
+            )
+        }
+    }
+
+    /// Accepts a job offer, moving the user to that club. Any current club is
+    /// vacated first. Returns the new club on success.
+    @discardableResult
+    public func acceptJobOffer(_ offer: JobOffer) -> Club? {
+        guard let clubId = offer.clubId,
+              let idx = clubs.firstIndex(where: { $0.id == clubId }) else {
+            // National-team offers are handled by a later stage; just drop them.
+            jobOffers.removeAll { $0.id == offer.id }
+            return nil
+        }
+
+        for otherIdx in 0..<clubs.count {
+            clubs[otherIdx].isUserClub = (otherIdx == idx)
+        }
+        clubs[idx].ensureTacticalIntegrity()
+        userClubId = clubId
+        jobOffers.removeAll()
+
+        // Reputation is nudged toward the new role's standing.
+        manager.reputation = min(100, max(manager.reputation, min(offer.reputation, manager.reputation + 10)))
+        clubs[idx].manager = manager.fullName
+
+        addNews(
+            headline: "You Are Now the Manager of \(clubs[idx].name)!",
+            body: "\(clubs[idx].name) have appointed \(manager.fullName) as first-team manager.",
+            category: .general
+        )
+        return clubs[idx]
+    }
+
+    /// Declines a single job offer.
+    public func declineJobOffer(_ offer: JobOffer) {
+        jobOffers.removeAll { $0.id == offer.id }
+    }
+
+    /// Declines every outstanding offer.
+    public func declineAllJobOffers() {
+        jobOffers.removeAll()
+    }
+
+    /// Appends a completed season to the manager's career history and lightly
+    /// adjusts reputation based on final position and the division's strength.
+    public func recordManagerSeason(
+        club: Club,
+        position: Int,
+        played: Int,
+        won: Int,
+        drawn: Int,
+        lost: Int,
+        honours: [String] = []
+    ) {
+        let league = leagues.first { $0.tier == club.leagueTier }
+        let record = ManagerSeasonRecord(
+            seasonYear: season.year,
+            clubName: club.name,
+            leagueName: league?.name ?? club.leagueTier.displayName,
+            played: played,
+            won: won,
+            drawn: drawn,
+            lost: lost,
+            finalPosition: position,
+            honours: honours
+        )
+        manager.careerHistory.append(record)
+
+        // Reputation drifts toward a target based on league strength and finish.
+        let tierBonus: Int
+        switch club.leagueTier {
+        case .premierLeague: tierBonus = 25
+        case .championship: tierBonus = 15
+        case .leagueOne: tierBonus = 8
+        case .leagueTwo: tierBonus = 3
+        }
+        let positionPenalty = min(20, max(0, position - 1) * 2)
+        let target = min(100, max(5, club.reputation / 2 + tierBonus - positionPenalty))
+        manager.reputation = (manager.reputation * 2 + target) / 3
+        manager.age += 1
+    }
+
+    public func addNews(headline: String, body: String, category: NewsCategory) {        let item = NewsItem(
             headline: headline,
             body: body,
             date: season.currentDate,
@@ -997,6 +1175,8 @@ public final class GameState: Codable {
         case activeMatchFixtureId
         case negotiationTargetPlayerId
         case soundEnabled
+        case manager
+        case jobOffers
     }
     
     public func encode(to encoder: Encoder) throws {
@@ -1016,6 +1196,8 @@ public final class GameState: Codable {
         try container.encodeIfPresent(activeMatchFixtureId, forKey: .activeMatchFixtureId)
         try container.encodeIfPresent(negotiationTargetPlayerId, forKey: .negotiationTargetPlayerId)
         try container.encode(soundEnabled, forKey: .soundEnabled)
+        try container.encode(manager, forKey: .manager)
+        try container.encode(jobOffers, forKey: .jobOffers)
     }
     
     public required init(from decoder: Decoder) throws {
@@ -1035,5 +1217,7 @@ public final class GameState: Codable {
         self.activeMatchFixtureId = try container.decodeIfPresent(UUID.self, forKey: .activeMatchFixtureId)
         self.negotiationTargetPlayerId = try container.decodeIfPresent(UUID.self, forKey: .negotiationTargetPlayerId)
         self.soundEnabled = try container.decodeIfPresent(Bool.self, forKey: .soundEnabled) ?? true
+        self.manager = try container.decodeIfPresent(ManagerProfile.self, forKey: .manager) ?? ManagerProfile()
+        self.jobOffers = try container.decodeIfPresent([JobOffer].self, forKey: .jobOffers) ?? []
     }
 }
