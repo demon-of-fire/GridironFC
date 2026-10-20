@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+
+# Xcode / build artifacts
+build/
+build-output/
+DerivedData/
+*.xcarchive
+*.ipa
+*.dSYM
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+*.xcuserstate
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Node (data generation tooling)
+node_modules/
+npm-debug.log*
+
+# Editors
+.idea/
+.vscode/
