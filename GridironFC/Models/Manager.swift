@@ -148,7 +148,7 @@ public struct ManagerProfile: Codable, Hashable {
     }
 
     public var flag: String {
-        nationalityEnum?.flag ?? "🏳️"
+        nationalityEnum?.flag ?? "INT"
     }
 
     /// Average of the four coaching attributes, for a quick "overall coach" read.

@@ -357,12 +357,17 @@ public struct LiveMatchView: View {
         guard minute < 90 else { return }
         isPlaying = true
         ticker?.invalidate()
-        ticker = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { timer in
+        let interval = gameState.matchSettings.speed.tickInterval
+        ticker = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { timer in
             Task { @MainActor in
                 advanceMinute()
                 if minute >= 90 {
                     timer.invalidate()
                     isPlaying = false
+                } else if gameState.matchSettings.stopAtHalfTime && minute == 45 {
+                    timer.invalidate()
+                    isPlaying = false
+                    AccessibilityNotification.Announcement("Half-time. Paused for substitutions.").post()
                 }
             }
         }

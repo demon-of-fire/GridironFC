@@ -1524,6 +1524,7 @@ public struct StandingsView: View {
 
 public struct TransferHubView: View {
     @Environment(GameState.self) private var gameState
+    @State private var showFreeAgents = false
     
     public var body: some View {
         List {
@@ -1558,15 +1559,21 @@ public struct TransferHubView: View {
                 .accessibilityHint("Bids and offers awaiting a response")
             }
 
-            Section(header: Text("Free Agent Market (\(gameState.freeAgents.count))")) {
-                if gameState.freeAgents.isEmpty {
-                    Text("No free agents currently scouting.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(gameState.freeAgents.prefix(15)) { player in
-                        NavigationLink(destination: PlayerDetailView(playerId: player.id)) {
-                            PlayerRowView(player: player)
+            Section(header: Text("Free Agent Market")) {
+                Toggle(isOn: $showFreeAgents) {
+                    Label("Browse Free Agents (\(gameState.freeAgents.count))", systemImage: "person.crop.circle.badge.questionmark")
+                }
+                .accessibilityHint("Free agents are hidden unless this is switched on")
+                if showFreeAgents {
+                    if gameState.freeAgents.isEmpty {
+                        Text("No free agents currently scouting.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(gameState.freeAgents.prefix(15)) { player in
+                            NavigationLink(destination: PlayerDetailView(playerId: player.id)) {
+                                PlayerRowView(player: player)
+                            }
                         }
                     }
                 }
@@ -1660,9 +1667,10 @@ public struct PlayerSearchView: View {
     @State private var positionCategory: PositionCategory? = nil
     @State private var minOverall = 0
     @State private var maxAge = 99
-    @State private var includeFreeAgents = true
+    @State private var includeFreeAgents = false
     @State private var maxFeeFilter: Int? = nil
     @State private var sortMode: SortMode = .overall
+    @State private var hasSearched = false
 
     enum SortMode: String, CaseIterable, Identifiable {
         case overall = "Rating"
@@ -1673,6 +1681,7 @@ public struct PlayerSearchView: View {
     }
 
     private var results: [(player: Player, club: Club?)] {
+        guard hasSearched else { return [] }
         let base = gameState.searchPlayers(
             positionCategory: positionCategory,
             minOverall: minOverall,
@@ -1721,24 +1730,42 @@ public struct PlayerSearchView: View {
                 }
 
                 Toggle("Include Free Agents", isOn: $includeFreeAgents)
+                    .accessibilityHint("Free agents are hidden unless this is switched on")
+
+                Button {
+                    hasSearched = true
+                } label: {
+                    Label("Search Market", systemImage: "magnifyingglass")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityHint("Runs the search using the filters above")
             }
 
-            Section(header: Text("\(results.count) Players Found")) {
-                if results.isEmpty {
-                    Text("No players match your filters.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(results.prefix(80), id: \.player.id) { entry in
-                        NavigationLink(destination: PlayerDetailView(playerId: entry.player.id)) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                PlayerRowView(player: entry.player)
-                                Text(entry.club?.name ?? "Free Agent")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
+            if hasSearched {
+                Section(header: Text("\(results.count) Players Found")) {
+                    if results.isEmpty {
+                        Text("No players match your filters.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(results.prefix(80), id: \.player.id) { entry in
+                            NavigationLink(destination: PlayerDetailView(playerId: entry.player.id)) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    PlayerRowView(player: entry.player)
+                                    Text(entry.club?.name ?? "Free Agent")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                         }
                     }
+                }
+            } else {
+                Section {
+                    Text("Set your filters and tap Search Market to find players.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -1867,36 +1894,42 @@ public struct PostMatchView: View {
                     
                     // Player of the Match
                     if let potm = potmPlayer(for: res) {
-                        VStack(spacing: 8) {
-                            Text("Player of the Match")
-                                .font(.caption)
-                                .fontWeight(.bold)
-                                .foregroundStyle(.secondary)
-                            HStack(spacing: 12) {
-                                FaceView(player: potm.player, size: 52, style: .full)
-                                    .frame(width: 52, height: 52)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(potm.player.fullName)
-                                        .font(.headline)
-                                    Text("\(potm.clubName) • \(potm.player.primaryPosition.abbreviation)")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                VStack(spacing: 2) {
-                                    Image(systemName: "star.fill")
-                                        .foregroundStyle(.yellow)
-                                    Text(String(format: "%.1f", potm.rating))
-                                        .font(.headline)
-                                        .fontWeight(.bold)
+                        Button {
+                            gameState.currentScreen = .playerDetail(potm.player.id)
+                        } label: {
+                            VStack(spacing: 8) {
+                                Text("Player of the Match")
+                                    .font(.caption)
+                                    .fontWeight(.bold)
+                                    .foregroundStyle(.secondary)
+                                HStack(spacing: 12) {
+                                    FaceView(player: potm.player, size: 52, style: .full)
+                                        .frame(width: 52, height: 52)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(potm.player.fullName)
+                                            .font(.headline)
+                                        Text("\(potm.clubName) • \(potm.player.primaryPosition.abbreviation)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    VStack(spacing: 2) {
+                                        Image(systemName: "star.fill")
+                                            .foregroundStyle(.yellow)
+                                        Text(String(format: "%.1f", potm.rating))
+                                            .font(.headline)
+                                            .fontWeight(.bold)
+                                    }
                                 }
                             }
+                            .padding()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(UIColor.secondarySystemGroupedBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
                         }
-                        .padding()
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color(UIColor.secondarySystemGroupedBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .buttonStyle(.plain)
                         .padding(.horizontal)
+                        .accessibilityLabel("Player of the Match, \(potm.player.fullName), rating \(String(format: "%.1f", potm.rating)). Double tap to view stats")
                     }
                     
                     // Goal timeline
@@ -2251,6 +2284,48 @@ public struct SettingsView: View {
                     Label("Sound Effects", systemImage: "speaker.wave.2.fill")
                 }
                 .accessibilityHint("Plays sound and haptic feedback for goals, wins and losses")
+            }
+            
+            Section(header: Text("Match Playback")) {
+                Picker("Replay Speed", selection: Binding(
+                    get: { gameState.matchSettings.speed },
+                    set: { gameState.matchSettings.speed = $0 }
+                )) {
+                    ForEach(MatchSettings.Speed.allCases) { speed in
+                        Text(speed.displayName).tag(speed)
+                    }
+                }
+                .accessibilityHint("Sets how fast the live match replay runs")
+                
+                Toggle(isOn: Binding(
+                    get: { gameState.matchSettings.stopAtHalfTime },
+                    set: { gameState.matchSettings.stopAtHalfTime = $0 }
+                )) {
+                    Label("Stop at Half-Time", systemImage: "pause.circle")
+                }
+                .accessibilityHint("Pauses the replay at half-time so you can make substitutions")
+            }
+            
+            Section(header: Text("Assistant Manager")) {
+                Picker("Auto-Substitutions", selection: Binding(
+                    get: { gameState.matchSettings.autoSubTiming },
+                    set: { gameState.matchSettings.autoSubTiming = $0 }
+                )) {
+                    ForEach(MatchSettings.AutoSubTiming.allCases) { timing in
+                        Text(timing.displayName).tag(timing)
+                    }
+                }
+                .accessibilityHint("Controls when the assistant manager makes automatic substitutions")
+                
+                Picker("Rotation Aggression", selection: Binding(
+                    get: { gameState.matchSettings.autoSubAggression },
+                    set: { gameState.matchSettings.autoSubAggression = $0 }
+                )) {
+                    ForEach(MatchSettings.AutoSubAggression.allCases) { level in
+                        Text(level.displayName).tag(level)
+                    }
+                }
+                .accessibilityHint("How readily tired players are rotated off")
             }
             
             Section(header: Text("Manual Save Slots")) {
