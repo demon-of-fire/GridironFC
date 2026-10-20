@@ -852,6 +852,8 @@ public final class GameState: Codable {
             case .championship: return .premierLeague
             case .leagueOne: return .championship
             case .leagueTwo: return .leagueOne
+            // Standalone continental leagues have no upward promotion target.
+            case .laLiga, .serieA, .bundesliga, .ligue1: return nil
             }
         }
         
@@ -861,6 +863,8 @@ public final class GameState: Codable {
             case .championship: return .leagueOne
             case .leagueOne: return .leagueTwo
             case .leagueTwo: return nil // Bottom tier: no relegation out of the playable world.
+            // No modelled division below these; keep clubs in place.
+            case .laLiga, .serieA, .bundesliga, .ligue1: return nil
             }
         }
         
@@ -1141,6 +1145,8 @@ public final class GameState: Codable {
         case .championship: tierBonus = 15
         case .leagueOne: tierBonus = 8
         case .leagueTwo: tierBonus = 3
+        case .laLiga, .serieA: tierBonus = 22
+        case .bundesliga, .ligue1: tierBonus = 18
         }
         let positionPenalty = min(20, max(0, position - 1) * 2)
         let target = min(100, max(5, club.reputation / 2 + tierBonus - positionPenalty))

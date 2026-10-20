@@ -381,6 +381,17 @@ public struct ClubFinances: Codable, Hashable {
                 sponsorshipIncome: 450_000,
                 merchandiseIncome: 180_000
             )
+        case .laLiga, .serieA, .bundesliga, .ligue1:
+            return ClubFinances(
+                transferBudget: 35_000_000,
+                wageBudget: 1_300_000,
+                currentWageBill: 1_100_000,
+                balance: 55_000_000,
+                tvIncome: 80_000_000,
+                matchdayIncome: 1_000_000,
+                sponsorshipIncome: 30_000_000,
+                merchandiseIncome: 12_000_000
+            )
         }
     }
 }
@@ -425,6 +436,9 @@ public struct StaffMember: Codable, Identifiable, Hashable {
         case .leagueTwo:
             baseQuality = 2
             baseWage = 600
+        case .laLiga, .serieA, .bundesliga, .ligue1:
+            baseQuality = 4
+            baseWage = 7_000
         }
         
         return [

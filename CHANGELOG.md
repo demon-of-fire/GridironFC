@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **European top flights** — four new fully playable leagues: **La Liga**, **Serie A**,
+  **Bundesliga**, and **Ligue 1**, each with real clubs and real players bundled as
+  offline JSON (`tier5`–`tier8`). Together with the English pyramid the world now spans
+  **five countries and eight divisions** (~2,200 additional players).
+- **Country & division structure** — leagues now carry a country grouping; the four
+  English divisions keep their promotion/relegation pyramid while the continental
+  top flights are standalone leagues. European qualification slots are modelled per
+  league (5 for the Premier League, 4 for the continental top flights).
+
+> **Accuracy note:** European club and player data reflects recent squads and is
+> provided for identification only; some squad members and ages will be out of date
+> relative to the 2026-27 season. All crests and faces remain procedurally generated.
+
 - **Manager customisation** — every career now begins by creating your manager:
   name, nationality, age, and four allocatable coaching attributes, with a
   procedurally generated avatar. Your profile tracks reputation, a coaching

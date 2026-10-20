@@ -515,55 +515,141 @@ public enum StaffRole: String, Codable, CaseIterable, Identifiable, Hashable {
 
 // MARK: - League Tier
 
+/// A competition the user can manage in. The four English divisions form a
+/// promotion/relegation pyramid; the continental top flights are standalone
+/// leagues (no cross-league promotion) but participate in European competition.
 public enum LeagueTier: Int, Codable, CaseIterable, Identifiable, Comparable, Hashable {
     case premierLeague = 1
     case championship = 2
     case leagueOne = 3
     case leagueTwo = 4
-    
+    case laLiga = 5
+    case serieA = 6
+    case bundesliga = 7
+    case ligue1 = 8
+
     public var id: Int { rawValue }
-    
+
     public static func < (lhs: LeagueTier, rhs: LeagueTier) -> Bool {
         return lhs.rawValue < rhs.rawValue
     }
-    
+
     public var displayName: String {
         switch self {
         case .premierLeague: return "Premier League"
         case .championship: return "Championship"
         case .leagueOne: return "League One"
         case .leagueTwo: return "League Two"
+        case .laLiga: return "La Liga"
+        case .serieA: return "Serie A"
+        case .bundesliga: return "Bundesliga"
+        case .ligue1: return "Ligue 1"
         }
     }
-    
+
+    /// Country grouping. Used to keep promotion/relegation and European
+    /// qualification within the correct national structure.
+    public var country: LeagueCountry {
+        switch self {
+        case .premierLeague, .championship, .leagueOne, .leagueTwo: return .england
+        case .laLiga: return .spain
+        case .serieA: return .italy
+        case .bundesliga: return .germany
+        case .ligue1: return .france
+        }
+    }
+
+    /// True for divisions that sit within the English promotion pyramid.
+    public var isEnglishPyramid: Bool {
+        country == .england
+    }
+
+    /// True for standalone continental top flights.
+    public var isContinentalTopFlight: Bool {
+        switch self {
+        case .laLiga, .serieA, .bundesliga, .ligue1: return true
+        default: return false
+        }
+    }
+
     public var clubCount: Int {
         switch self {
         case .premierLeague: return 20
         case .championship, .leagueOne, .leagueTwo: return 24
+        case .laLiga: return 20
+        case .serieA: return 20
+        case .bundesliga: return 18
+        case .ligue1: return 18
         }
     }
-    
+
     public var autoPromotionCount: Int {
         switch self {
         case .premierLeague: return 0
         case .championship, .leagueOne: return 2
         case .leagueTwo: return 3
+        // Continental leagues are standalone: no automatic promotion.
+        case .laLiga, .serieA, .bundesliga, .ligue1: return 0
         }
     }
-    
+
     public var playoffPromotionCount: Int {
         switch self {
         case .premierLeague: return 0
         case .championship, .leagueOne, .leagueTwo: return 1
+        case .laLiga, .serieA, .bundesliga, .ligue1: return 0
         }
     }
-    
+
     public var relegationCount: Int {
         switch self {
         case .premierLeague: return 3
         case .championship: return 3
         case .leagueOne: return 4
         case .leagueTwo: return 2
+        // These would relegate into a division we don't model; keep bottom clubs in place.
+        case .laLiga, .serieA, .bundesliga, .ligue1: return 0
+        }
+    }
+
+    /// The number of European qualification slots this league grants (top-flight only).
+    public var europeanSlots: Int {
+        switch self {
+        case .premierLeague: return 5
+        case .laLiga, .serieA, .bundesliga, .ligue1: return 4
+        default: return 0
+        }
+    }
+}
+
+// MARK: - League Country
+
+public enum LeagueCountry: String, Codable, CaseIterable, Identifiable, Hashable {
+    case england
+    case spain
+    case italy
+    case germany
+    case france
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .england: return "England"
+        case .spain: return "Spain"
+        case .italy: return "Italy"
+        case .germany: return "Germany"
+        case .france: return "France"
+        }
+    }
+
+    public var flag: String {
+        switch self {
+        case .england: return "🏴󠁧󠁢󠁥󠁮󠁧󠁿"
+        case .spain: return "🇪🇸"
+        case .italy: return "🇮🇹"
+        case .germany: return "🇩🇪"
+        case .france: return "🇫🇷"
         }
     }
 }

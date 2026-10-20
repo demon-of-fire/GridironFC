@@ -67,7 +67,11 @@ public final class DataLoader {
             (1, ["league_premier", "premier_league", "tier1"], "Premier League", LeagueTier.premierLeague),
             (2, ["championship", "tier2"], "Championship", LeagueTier.championship),
             (3, ["league_one", "tier3"], "League One", LeagueTier.leagueOne),
-            (4, ["league_two", "tier4"], "League Two", LeagueTier.leagueTwo)
+            (4, ["league_two", "tier4"], "League Two", LeagueTier.leagueTwo),
+            (5, ["laliga", "spain", "tier5"], "La Liga", LeagueTier.laLiga),
+            (6, ["seriea", "italy", "tier6"], "Serie A", LeagueTier.serieA),
+            (7, ["bundesliga", "germany", "tier7"], "Bundesliga", LeagueTier.bundesliga),
+            (8, ["ligue1", "france", "tier8"], "Ligue 1", LeagueTier.ligue1)
         ]
         
         for (_, resourceNames, leagueName, tier) in fileNames {
@@ -91,12 +95,13 @@ public final class DataLoader {
                 
                 let league = League(name: rawLeague.name, tier: tier, clubIds: leagueClubIds)
                 allLeagues.append(league)
-            } else {
-                // Fallback to built-in programmatic catalog
+            } else if tier.isEnglishPyramid {
+                // Fallback to built-in programmatic catalog for the English pyramid.
                 let (clubsForTier, league) = buildFallbackTier(tier: tier, name: leagueName)
                 allClubs.append(contentsOf: clubsForTier)
                 allLeagues.append(league)
             }
+            // Continental leagues require their JSON; if missing they are omitted.
         }
         
         return (allClubs, allLeagues)
@@ -455,6 +460,7 @@ public final class DataLoader {
         case .championship: baseRating = 68
         case .leagueOne: baseRating = 60
         case .leagueTwo: baseRating = 52
+        case .laLiga, .serieA, .bundesliga, .ligue1: baseRating = 76
         }
         
         var squad: [Player] = []
@@ -606,6 +612,9 @@ public final class DataLoader {
                 ("Cheltenham Town", "CHL", "Whaddon Road", 7066, "Cheltenham", "#EE2737", "#FFFFFF", 60),
                 ("Morecambe", "MOR", "Mazuma Stadium", 6476, "Morecambe", "#EE2737", "#000000", 59)
             ]
+        case .laLiga, .serieA, .bundesliga, .ligue1:
+            // Continental leagues are authored in JSON; the procedural fallback is empty.
+            clubData = []
         }
         
         var clubIds: [UUID] = []
