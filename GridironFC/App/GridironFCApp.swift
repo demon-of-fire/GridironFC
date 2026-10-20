@@ -47,10 +47,12 @@ struct GridironFCApp: App {
                 leagues: leagues,
                 season: initialSeason,
                 currentScreen: .mainMenu,
-                europeanCompetitions: EuropeanCompetitionBuilder.build(from: clubs)
+                europeanCompetitions: EuropeanCompetitionBuilder.build(from: clubs),
+                nationalTeams: DataLoader.loadNationalTeams()
             )
             state.seedFreeAgents()
             state.seedAcademies()
+            state.seedInternationalTournaments()
             
             _gameState = State(initialValue: state)
         }

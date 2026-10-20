@@ -244,8 +244,14 @@ public struct MatchEngine {
             
             // Possession allocation for this minute. Clamp so a stronger side cannot
             // monopolise every chance; real matches rarely exceed ~70/30 possession.
-            let totalStrength = max(1.0, homeStrength + awayStrength)
-            let rawPossessionChance = homeStrength / totalStrength
+            // Tactics shift the possession battle: pressing/compact shape and a short
+            // passing game retain the ball for the side employing them.
+            let homePossessionFactor = homeClub.tactics.passingStyle.possessionMultiplier
+                * homeClub.tactics.pressing.defensiveMultiplier
+            let awayPossessionFactor = awayClub.tactics.passingStyle.possessionMultiplier
+                * awayClub.tactics.pressing.defensiveMultiplier
+            let totalStrength = max(1.0, homeStrength * homePossessionFactor + awayStrength * awayPossessionFactor)
+            let rawPossessionChance = (homeStrength * homePossessionFactor) / totalStrength
             let homePossessionChance = min(0.68, max(0.32, rawPossessionChance))
             let isHomeInPossession = Double.random(in: 0...1) < homePossessionChance
             if isHomeInPossession {
@@ -278,7 +284,11 @@ public struct MatchEngine {
             
             let eventRoll = Double.random(in: 0...100)
             
-            if eventRoll < (8.5 * tempoChanceModifier * marginModifier) {
+            // The defending side's tactical solidity reduces the chance of events.
+            let defendingTactics = isHomeInPossession ? awayClub.tactics : homeClub.tactics
+            let defenceModifier = 1.0 / defensiveFactor(tactics: defendingTactics)
+            
+            if eventRoll < (8.5 * tempoChanceModifier * marginModifier * defenceModifier) {
                 // Open play chance
                 resolveChance(
                     isHomeAttacking: isHomeInPossession,
@@ -1180,8 +1190,14 @@ public struct MatchEngine {
         let redCardPenalty = Double(11 - count) * 4.5
         var total = max(20.0, average - redCardPenalty)
         
-        // Mentality modifier
+        // Mentality modifier (attacking intent scales overall threat)
         total *= tactics.mentality.attackingMultiplier
+        // Width shapes attacking intent (wide = more chance creation).
+        total *= tactics.width.attackingMultiplier
+        // Passing style slightly shifts threat (direct/long create more chances).
+        total *= tactics.passingStyle.chanceMultiplier
+        // Formation shape shapes threat (more forwards = more attacking bite).
+        total *= tactics.formation.attackingBias
         
         // Home advantage (~8% boost unless neutral venue)
         if isHome && !neutralVenue {
@@ -1189,6 +1205,15 @@ public struct MatchEngine {
         }
         
         return total
+    }
+    
+    /// Defensive solidity factor derived from tactics: applied to reduce the
+    /// opponent's possession share and chance quality.
+    private static func defensiveFactor(tactics: Tactics) -> Double {
+        return tactics.mentality.defensiveMultiplier
+            * tactics.pressing.defensiveMultiplier
+            * tactics.width.defensiveMultiplier
+            * tactics.formation.defensiveBias
     }
     
     // MARK: - Fatigue Progression

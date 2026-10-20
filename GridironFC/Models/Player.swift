@@ -312,6 +312,23 @@ public struct Player: Codable, Identifiable, Hashable {
             return "£\(amount)"
         }
     }
+
+    /// A VoiceOver-friendly spoken currency, e.g. "96 million pounds".
+    public static func spokenCurrency(_ amount: Int) -> String {
+        if amount >= 1_000_000 {
+            let millions = Double(amount) / 1_000_000.0
+            let rounded = (millions * 10).rounded() / 10
+            if rounded == rounded.rounded() {
+                return "\(Int(rounded)) million pounds"
+            }
+            return String(format: "%.1f million pounds", rounded)
+        } else if amount >= 1_000 {
+            let thousands = amount / 1_000
+            return "\(thousands) thousand pounds"
+        } else {
+            return "\(amount) pounds"
+        }
+    }
     
     // MARK: - Valuation Calculation
     

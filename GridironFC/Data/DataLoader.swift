@@ -121,6 +121,50 @@ public final class DataLoader {
         return result
     }
 
+    // MARK: - National Teams
+
+    /// Loads national teams and their squads from the bundled JSON.
+    public static func loadNationalTeams() -> [NationalTeam] {
+        guard let url = Bundle.main.url(forResource: "national_teams", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let file = try? JSONDecoder().decode(RawNationalTeamFile.self, from: data) else {
+            return []
+        }
+
+        return file.teams.map { raw in
+            let confederation = Confederation(rawValue: raw.confederation ?? "UEFA") ?? .uefa
+            let players = raw.players.map { rp -> Player in
+                let rawPlayer = RawPlayerData(
+                    firstName: rp.firstName,
+                    lastName: rp.lastName,
+                    nationality: rp.nationality,
+                    age: rp.age,
+                    positions: rp.positions,
+                    overall: rp.overall,
+                    potential: rp.potential,
+                    preferredFoot: rp.preferredFoot,
+                    height: nil,
+                    weight: nil,
+                    value: nil,
+                    wage: nil,
+                    contractYears: nil,
+                    specialties: nil
+                )
+                return buildPlayer(from: rawPlayer, tier: .eng1)
+            }
+            return NationalTeam(
+                id: raw.id,
+                name: raw.name,
+                countryCode: raw.countryCode,
+                confederation: confederation,
+                fifaRanking: raw.fifaRanking,
+                coach: raw.coach,
+                players: players
+            )
+        }
+    }
+
+
     /// Candidate bundle resource names for a tier, in priority order.
     /// Canonical name is `tier<rawValue>`; historical short names are kept as aliases.
     private static func resourceNames(for tier: LeagueTier) -> [String] {

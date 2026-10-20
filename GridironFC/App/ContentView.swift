@@ -50,6 +50,10 @@ public struct ContentView: View {
                 EuropeanCompetitionsView()
             case .youthAcademy:
                 YouthAcademyView()
+            case .international:
+                InternationalHubView()
+            case .news:
+                NewsFeedView()
             case .playerDetail(let playerId):
                 PlayerDetailView(playerId: playerId)
             }
@@ -62,22 +66,22 @@ public struct ContentView: View {
 
 public enum TabDestination: String, CaseIterable, Identifiable {
     case dashboard = "Home"
+    case news = "News"
     case squad = "Squad"
     case tactics = "Tactics"
     case league = "League"
     case transfers = "Transfers"
-    case inbox = "Inbox"
     
     public var id: String { rawValue }
     
     public var iconName: String {
         switch self {
         case .dashboard: return "house.fill"
+        case .news: return "newspaper.fill"
         case .squad: return "person.3.fill"
         case .tactics: return "list.bullet.clipboard.fill"
         case .league: return "trophy.fill"
         case .transfers: return "arrow.left.arrow.right"
-        case .inbox: return "tray.full.fill"
         }
     }
 }
@@ -95,6 +99,12 @@ public struct InGameTabView: View {
                     Label(TabDestination.dashboard.rawValue, systemImage: TabDestination.dashboard.iconName)
                 }
                 .tag(TabDestination.dashboard)
+            
+            NewsFeedView()
+                .tabItem {
+                    Label(TabDestination.news.rawValue, systemImage: TabDestination.news.iconName)
+                }
+                .tag(TabDestination.news)
             
             SquadView()
                 .tabItem {
@@ -119,13 +129,6 @@ public struct InGameTabView: View {
                     Label(TabDestination.transfers.rawValue, systemImage: TabDestination.transfers.iconName)
                 }
                 .tag(TabDestination.transfers)
-            
-            MailboxView()
-                .tabItem {
-                    Label(TabDestination.inbox.rawValue, systemImage: TabDestination.inbox.iconName)
-                }
-                .badge(gameState.unreadMailCount)
-                .tag(TabDestination.inbox)
         }
         .navigationTitle(navigationTitleForTab(selectedTab))
         .navigationBarTitleDisplayMode(.inline)
@@ -139,50 +142,57 @@ public struct InGameTabView: View {
                 .accessibilityLabel("Main Menu")
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        gameState.currentScreen = .mailbox
+                if selectedTab == .dashboard {
+                    Menu {
+                        Button {
+                            gameState.currentScreen = .mailbox
+                        } label: {
+                            Label("Inbox", systemImage: "tray.full")
+                        }
+                        Button {
+                            gameState.currentScreen = .matchHistory
+                        } label: {
+                            Label("Match History", systemImage: "sportscourt")
+                        }
+                        Button {
+                            gameState.currentScreen = .europeanCompetitions
+                        } label: {
+                            Label("European Competitions", systemImage: "globe.europe.africa")
+                        }
+                        Button {
+                            gameState.currentScreen = .international
+                        } label: {
+                            Label("International", systemImage: "flag.2.crossed")
+                        }
+                        Button {
+                            gameState.currentScreen = .youthAcademy
+                        } label: {
+                            Label("Youth Academy", systemImage: "figure.and.child.holdinghands")
+                        }
+                        Button {
+                            gameState.currentScreen = .managerProfile
+                        } label: {
+                            Label("My Profile", systemImage: "person.crop.circle")
+                        }
+                        Button {
+                            gameState.currentScreen = .jobOffers
+                        } label: {
+                            Label(
+                                gameState.jobOffers.isEmpty ? "Job Offers" : "Job Offers (\(gameState.jobOffers.count))",
+                                systemImage: "briefcase"
+                            )
+                        }
+                        Divider()
+                        Button {
+                            gameState.currentScreen = .settings
+                        } label: {
+                            Label("Settings", systemImage: "gearshape")
+                        }
                     } label: {
-                        Label("Inbox", systemImage: "tray.full")
+                        Image(systemName: "ellipsis.circle")
                     }
-                    Button {
-                        gameState.currentScreen = .matchHistory
-                    } label: {
-                        Label("Match History", systemImage: "sportscourt")
-                    }
-                    Button {
-                        gameState.currentScreen = .europeanCompetitions
-                    } label: {
-                        Label("European Competitions", systemImage: "globe.europe.africa")
-                    }
-                    Button {
-                        gameState.currentScreen = .youthAcademy
-                    } label: {
-                        Label("Youth Academy", systemImage: "figure.and.child.holdinghands")
-                    }
-                    Button {
-                        gameState.currentScreen = .managerProfile
-                    } label: {
-                        Label("My Profile", systemImage: "person.crop.circle")
-                    }
-                    Button {
-                        gameState.currentScreen = .jobOffers
-                    } label: {
-                        Label(
-                            gameState.jobOffers.isEmpty ? "Job Offers" : "Job Offers (\(gameState.jobOffers.count))",
-                            systemImage: "briefcase"
-                        )
-                    }
-                    Divider()
-                    Button {
-                        gameState.currentScreen = .settings
-                    } label: {
-                        Label("Settings", systemImage: "gearshape")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
+                    .accessibilityLabel("More options")
                 }
-                .accessibilityLabel("More options")
             }
         }
     }
@@ -1027,6 +1037,8 @@ public struct DashboardView: View {
                             Text(Player.formatCurrency(userClub.finances.transferBudget))
                                 .font(.headline)
                         }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Transfer budget \(Player.spokenCurrency(userClub.finances.transferBudget))")
                         Spacer()
                         VStack(alignment: .trailing, spacing: 4) {
                             Text("Wage Budget")
@@ -1035,18 +1047,67 @@ public struct DashboardView: View {
                             Text("\(Player.formatCurrency(userClub.finances.currentWageBill)) / \(Player.formatCurrency(userClub.finances.wageBudget))")
                                 .font(.headline)
                         }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Wage budget \(Player.spokenCurrency(userClub.finances.wageBudget)) per week, \(Player.spokenCurrency(userClub.finances.currentWageBill)) currently spent")
                     }
                     .padding()
                     .background(Color(UIColor.secondarySystemGroupedBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
                 
-                // News Feed
+                // Inbox — the manager's personal mail, surfaced on Home.
+                Button {
+                    gameState.currentScreen = .mailbox
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "tray.full.fill")
+                            .font(.title2)
+                            .foregroundStyle(Color.accentColor)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Inbox")
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                            Text(gameState.unreadMailCount == 0
+                                 ? "No unread messages"
+                                 : "\(gameState.unreadMailCount) unread message\(gameState.unreadMailCount == 1 ? "" : "s")")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if gameState.unreadMailCount > 0 {
+                            Text("\(gameState.unreadMailCount)")
+                                .font(.caption2)
+                                .fontWeight(.bold)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Color.red)
+                                .clipShape(Capsule())
+                        }
+                        Image(systemName: "chevron.right")
+                            .font(.footnote)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding()
+                    .background(Color(UIColor.secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Inbox, \(gameState.unreadMailCount) unread")
+                .accessibilityHint("Opens your manager inbox")
+                
+                // News Headlines (full feed lives in the News tab)
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Latest News")
-                        .font(.headline)
+                    HStack {
+                        Text("Latest News")
+                            .font(.headline)
+                        Spacer()
+                        Button("See All") { gameState.currentScreen = .news }
+                            .font(.caption)
+                            .accessibilityHint("Opens the full news feed")
+                    }
                     
-                    ForEach(gameState.news.prefix(5)) { item in
+                    ForEach(gameState.news.prefix(3)) { item in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(item.headline)
                                 .font(.subheadline)
@@ -1093,16 +1154,38 @@ public struct SquadView: View {
     @Environment(GameState.self) private var gameState
     @State private var selectedStarterId: UUID?
     @State private var substitutionBanner: String?
+    @State private var isEditingSquad = false
 
     public var body: some View {
         ScrollView {
             if let userClub = gameState.userClub {
                 VStack(spacing: 16) {
+                    // Edit Squad toggle: off = tap opens player profile; on = tap
+                    // highlights players for substitution.
+                    HStack {
+                        Text(isEditingSquad ? "Tap a starter, then a substitute to swap." : "Tap any player for their profile.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button(isEditingSquad ? "Done" : "Edit Squad") {
+                            isEditingSquad.toggle()
+                            selectedStarterId = nil
+                            substitutionBanner = nil
+                        }
+                        .accessibilityLabel(isEditingSquad ? "Finish editing squad" : "Edit squad")
+                        .accessibilityHint("Toggles the substitution highlighting mode")
+                    }
+                    .padding(.horizontal)
+
                     FormationPitchView(
                         formation: userClub.tactics.formation,
                         players: userClub.startingXIPlayers,
                         selectedPlayerId: selectedStarterId,
                         onSelect: { player in
+                            if !isEditingSquad {
+                                gameState.currentScreen = .playerDetail(player.id)
+                                return
+                            }
                             if let selected = selectedStarterId, selected != player.id {
                                 selectedStarterId = nil
                                 substitutionBanner = nil
@@ -1158,7 +1241,7 @@ public struct SquadView: View {
 
             ForEach(players) { player in
                 VStack(spacing: 0) {
-                    if isBench && selectedStarterId != nil {
+                    if isEditingSquad && isBench && selectedStarterId != nil {
                         Button {
                             if let starterId = selectedStarterId {
                                 gameState.swapIntoStartingXI(playerId: player.id, replacing: starterId)
@@ -1179,6 +1262,19 @@ public struct SquadView: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel("Bring on \(player.fullName)")
                         .accessibilityHint("Substitutes this player into the starting eleven")
+                    } else if isEditingSquad && isBench {
+                        // Highlight substitutes for swap while editing.
+                        PlayerRowView(player: player)
+                            .padding(.vertical, 4)
+                            .padding(.horizontal)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.accentColor.opacity(0.4), lineWidth: 1)
+                                    .padding(.horizontal, 6)
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture { gameState.currentScreen = .playerDetail(player.id) }
+                            .accessiblePlayerCard(player: player, clubName: clubName)
                     } else {
                         NavigationLink(destination: PlayerDetailView(playerId: player.id)) {
                             PlayerRowView(player: player)
@@ -1246,6 +1342,16 @@ public struct PlayerRowView: View {
 public struct TacticsView: View {
     @Environment(GameState.self) private var gameState
     
+    /// Applies a mutation to the user's club tactics and writes the club back
+    /// into the world state.
+    private func updateTactics(_ mutate: (inout Club.Tactics) -> Void) {
+        guard let userClub = gameState.userClub else { return }
+        var updated = userClub
+        mutate(&updated.tactics)
+        gameState.clubs.removeAll { $0.id == updated.id }
+        gameState.clubs.append(updated)
+    }
+    
     public var body: some View {
         Form {
             if let userClub = gameState.userClub {
@@ -1269,44 +1375,75 @@ public struct TacticsView: View {
                 Section(header: Text("Tactical Instructions")) {
                     Picker("Mentality", selection: Binding(
                         get: { userClub.tactics.mentality },
-                        set: { newM in
-                            var updated = userClub
-                            updated.tactics.mentality = newM
-                            gameState.clubs.removeAll { $0.id == updated.id }
-                            gameState.clubs.append(updated)
-                        }
+                        set: { newM in updateTactics { $0.mentality = newM } }
                     )) {
                         ForEach(Mentality.allCases) { m in
                             Text(m.displayName).tag(m)
                         }
                     }
                     
-                    Picker("Pressing", selection: Binding(
-                        get: { userClub.tactics.pressing },
-                        set: { newP in
-                            var updated = userClub
-                            updated.tactics.pressing = newP
-                            gameState.clubs.removeAll { $0.id == updated.id }
-                            gameState.clubs.append(updated)
-                        }
-                    )) {
-                        ForEach(PressingIntensity.allCases) { p in
-                            Text(p.displayName).tag(p)
-                        }
+                    // Pressing intensity as a slider (Low / Medium / High)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Pressing: \(userClub.tactics.pressing.displayName)")
+                            .font(.subheadline)
+                        Slider(value: Binding(
+                            get: { Double(userClub.tactics.pressing.sliderIndex) },
+                            set: { newValue in
+                                guard let p = PressingIntensity.fromSlider(Int(newValue.rounded())) else { return }
+                                updateTactics { $0.pressing = p }
+                            }
+                        ), in: 0...2, step: 1)
+                        .accessibilityLabel("Pressing intensity")
+                        .accessibilityValue(userClub.tactics.pressing.displayName)
+                        .accessibilityHint("Slide to adjust how aggressively your team presses")
                     }
                     
-                    Picker("Passing Style", selection: Binding(
-                        get: { userClub.tactics.passingStyle },
-                        set: { newPass in
-                            var updated = userClub
-                            updated.tactics.passingStyle = newPass
-                            gameState.clubs.removeAll { $0.id == updated.id }
-                            gameState.clubs.append(updated)
-                        }
-                    )) {
-                        ForEach(PassingStyle.allCases) { pass in
-                            Text(pass.displayName).tag(pass)
-                        }
+                    // Passing style as a slider (Short / Mixed / Long / Direct)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Passing: \(userClub.tactics.passingStyle.displayName)")
+                            .font(.subheadline)
+                        Slider(value: Binding(
+                            get: { Double(userClub.tactics.passingStyle.sliderIndex) },
+                            set: { newValue in
+                                guard let p = PassingStyle.fromSlider(Int(newValue.rounded())) else { return }
+                                updateTactics { $0.passingStyle = p }
+                            }
+                        ), in: 0...3, step: 1)
+                        .accessibilityLabel("Passing style")
+                        .accessibilityValue(userClub.tactics.passingStyle.displayName)
+                        .accessibilityHint("Slide to adjust your team's passing approach")
+                    }
+                    
+                    // Width as a slider (Narrow / Normal / Wide)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Width: \(userClub.tactics.width.displayName)")
+                            .font(.subheadline)
+                        Slider(value: Binding(
+                            get: { Double(userClub.tactics.width.sliderIndex) },
+                            set: { newValue in
+                                guard let w = Width.fromSlider(Int(newValue.rounded())) else { return }
+                                updateTactics { $0.width = w }
+                            }
+                        ), in: 0...2, step: 1)
+                        .accessibilityLabel("Team width")
+                        .accessibilityValue(userClub.tactics.width.displayName)
+                        .accessibilityHint("Slide to adjust how wide your team plays")
+                    }
+                    
+                    // Tempo as a slider (Slow / Normal / Fast)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Tempo: \(userClub.tactics.tempo.displayName)")
+                            .font(.subheadline)
+                        Slider(value: Binding(
+                            get: { Double(userClub.tactics.tempo.sliderIndex) },
+                            set: { newValue in
+                                guard let t = Tempo.fromSlider(Int(newValue.rounded())) else { return }
+                                updateTactics { $0.tempo = t }
+                            }
+                        ), in: 0...2, step: 1)
+                        .accessibilityLabel("Tempo")
+                        .accessibilityValue(userClub.tactics.tempo.displayName)
+                        .accessibilityHint("Slide to adjust the pace of your play")
                     }
                 }
                 
@@ -2480,6 +2617,229 @@ private struct EuropeanFixtureRow: View {
             }
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: - News Feed Screen
+
+public struct NewsFeedView: View {
+    @Environment(GameState.self) private var gameState
+    @State private var categoryFilter: NewsCategory?
+
+    private var items: [NewsItem] {
+        if let categoryFilter {
+            return gameState.news.filter { $0.category == categoryFilter }
+        }
+        return gameState.news
+    }
+
+    public var body: some View {
+        List {
+            Section {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        newsChip("All", active: categoryFilter == nil) { categoryFilter = nil }
+                        ForEach(NewsCategory.allCases, id: \.self) { cat in
+                            newsChip(cat.displayName, active: categoryFilter == cat) { categoryFilter = cat }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))
+            }
+
+            if items.isEmpty {
+                ContentUnavailableView("No News", systemImage: "newspaper",
+                                       description: Text("Stories will appear here as your career unfolds."))
+            } else {
+                ForEach(items) { item in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(item.category.displayName.uppercased())
+                                .font(.caption2)
+                                .fontWeight(.bold)
+                                .foregroundStyle(Color.accentColor)
+                            Spacer()
+                            Text(item.date)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(item.headline)
+                            .font(.headline)
+                        Text(item.body)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Text(item.sender)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.vertical, 4)
+                    .accessibilityElement(children: .combine)
+                }
+            }
+        }
+        .navigationTitle("News")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @ViewBuilder
+    private func newsChip(_ title: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption)
+                .fontWeight(active ? .bold : .regular)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(active ? Color.accentColor : Color(UIColor.secondarySystemGroupedBackground))
+                .foregroundStyle(active ? .white : .primary)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(active ? [.isSelected, .isButton] : .isButton)
+    }
+}
+
+// MARK: - International Management Screen
+
+public struct InternationalHubView: View {
+    @Environment(GameState.self) private var gameState
+    @State private var selectedTournament: InternationalTournament.Kind = .worldCup
+
+    private var tournamentState: InternationalTournament.State? {
+        gameState.internationalTournaments.first { $0.kind == selectedTournament }
+    }
+
+    public var body: some View {
+        List {
+            // My national team
+            Section(header: Text("My Nation")) {
+                if let team = gameState.managedNationalTeam {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(team.name).font(.headline)
+                            Text("\(team.confederation.rawValue) • Squad \(team.players.count)")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Resign") { gameState.resignNationalTeam() }
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .accessibilityHint("Step down as national team manager")
+                    }
+                } else {
+                    Text("You are not managing a national team.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            // Take over a nation
+            Section(header: Text("Available Nations")) {
+                ForEach(availablenations) { team in
+                    Button {
+                        gameState.takeOverNationalTeam(id: team.id)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(team.name).font(.subheadline).foregroundStyle(.primary)
+                                Text(team.fifaRanking.map { "FIFA Rank \($0)" } ?? "Unranked")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text("Strength \(Int(team.strength))")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Take over \(team.name), strength \(Int(team.strength))")
+                }
+            }
+
+            // Tournaments
+            Section {
+                Picker("Tournament", selection: $selectedTournament) {
+                    ForEach(InternationalTournament.Kind.allCases) { kind in
+                        Text(kind.shortName).tag(kind)
+                    }
+                }
+                .pickerStyle(.menu)
+                .accessibilityLabel("Select tournament")
+            }
+
+            if let state = tournamentState {
+                Section(header: Text(state.kind.displayName)) {
+                    if state.stage == .complete, let champId = state.championId {
+                        HStack {
+                            Image(systemName: "trophy.fill").foregroundStyle(.yellow)
+                            Text("\(gameState.nationalTeam(withId: champId)?.name ?? "Champion") — Champions")
+                                .fontWeight(.semibold)
+                        }
+                    } else {
+                        Text(state.stage == .groupStage ? "Group Stage" : "Knockout Stage")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+
+                if state.stage == .groupStage {
+                    ForEach(state.groupNames, id: \.self) { group in
+                        Section(header: Text(group)) {
+                            let rows = state.table(forGroup: group)
+                            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                                HStack {
+                                    Text("\(index + 1)").font(.caption).frame(width: 20, alignment: .leading)
+                                    Text(gameState.nationalTeam(withId: row.teamId)?.name ?? row.teamId)
+                                        .font(.subheadline)
+                                        .fontWeight(gameState.managedNationalTeamId == row.teamId ? .bold : .regular)
+                                    Spacer()
+                                    Text("\(row.played)").font(.caption).frame(width: 22, alignment: .trailing)
+                                    Text("\(row.goalDifference)").font(.caption).frame(width: 28, alignment: .trailing)
+                                    Text("\(row.points)").font(.subheadline).fontWeight(.bold).frame(width: 30, alignment: .trailing)
+                                }
+                                .accessibilityElement(children: .combine)
+                            }
+                        }
+                    }
+                } else {
+                    Section(header: Text("Knockout Bracket")) {
+                        ForEach(state.fixtures.filter { $0.stage.hasPrefix("Round") || $0.stage.contains("Final") }) { fx in
+                            let home = gameState.nationalTeam(withId: fx.homeTeamId)?.name ?? fx.homeTeamId
+                            let away = gameState.nationalTeam(withId: fx.awayTeamId)?.name ?? fx.awayTeamId
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(home) vs \(away)").font(.subheadline)
+                                    Text(fx.stage).font(.caption2).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text(fx.isPlayed ? "\(fx.homeGoals)–\(fx.awayGoals)" : "—")
+                                    .font(.subheadline).fontWeight(.bold)
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                    }
+                }
+            } else {
+                Text("This tournament has no eligible nations.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("International")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// Nations the user can take over, ordered by ranking.
+    private var availablenations: [NationalTeam] {
+        let current = gameState.managedNationalTeamId
+        return gameState.nationalTeams
+            .filter { $0.id != current }
+            .sorted { lhs, rhs in
+                switch (lhs.fifaRanking, rhs.fifaRanking) {
+                case let (l?, r?): return l < r
+                case (.some, .none): return true
+                case (.none, .some): return false
+                default: return lhs.name < rhs.name
+                }
+            }
     }
 }
 

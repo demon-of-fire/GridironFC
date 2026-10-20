@@ -89,6 +89,8 @@ public final class GameState: Codable {
     
     // Preferences
     public var soundEnabled: Bool
+    /// In-match user preferences (speed, half-time stop, auto-substitution rules).
+    public var matchSettings: MatchSettings
     
     // Managerial Career
     public var manager: ManagerProfile
@@ -98,6 +100,12 @@ public final class GameState: Codable {
     public var europeanCompetitions: [EuropeanCompetitionState]
     /// European matchweek pointer; advances alongside the domestic calendar.
     public var europeanMatchweek: Int
+
+    // International management (national teams + tournaments)
+    public var nationalTeams: [NationalTeam]
+    public var internationalTournaments: [InternationalTournament.State]
+    /// The national team the user is currently managing, if any.
+    public var managedNationalTeamId: String?
     
     // MARK: - Initializer
     
@@ -116,10 +124,14 @@ public final class GameState: Codable {
         activeMatchFixtureId: UUID? = nil,
         negotiationTargetPlayerId: UUID? = nil,
         soundEnabled: Bool = true,
+        matchSettings: MatchSettings = MatchSettings(),
         manager: ManagerProfile = ManagerProfile(),
         jobOffers: [JobOffer] = [],
         europeanCompetitions: [EuropeanCompetitionState] = [],
-        europeanMatchweek: Int = 0
+        europeanMatchweek: Int = 0,
+        nationalTeams: [NationalTeam] = [],
+        internationalTournaments: [InternationalTournament.State] = [],
+        managedNationalTeamId: String? = nil
     ) {
         self.gameMode = gameMode
         self.clubs = clubs
@@ -135,10 +147,14 @@ public final class GameState: Codable {
         self.activeMatchFixtureId = activeMatchFixtureId
         self.negotiationTargetPlayerId = negotiationTargetPlayerId
         self.soundEnabled = soundEnabled
+        self.matchSettings = matchSettings
         self.manager = manager
         self.jobOffers = jobOffers
         self.europeanCompetitions = europeanCompetitions
         self.europeanMatchweek = europeanMatchweek
+        self.nationalTeams = nationalTeams
+        self.internationalTournaments = internationalTournaments
+        self.managedNationalTeamId = managedNationalTeamId
     }    // MARK: - Computed Properties
     
     public var userClub: Club? {
@@ -374,6 +390,9 @@ public final class GameState: Codable {
         // 5b. Advance European competitions (one European matchweek from domestic week 3).
         advanceEuropeanCompetitions()
         
+        // 5c. Advance international tournaments.
+        advanceInternationalTournaments()
+        
         // 6. Check if season has completed
         if season.isSeasonFinished && season.currentPhase != .endOfSeason {
             processEndOfSeason()
@@ -414,8 +433,90 @@ public final class GameState: Codable {
         }
     }
 
-    /// A lightweight European scoreline from the two clubs' top-11 average ratings.
-    static func simulateEuropeanScore(home: Club, away: Club) -> (Int, Int) {
+    // MARK: - International Management
+
+    /// Builds international tournaments from the loaded national teams. Called at
+    /// boot and after a data reload.
+    public func seedInternationalTournaments() {
+        guard !nationalTeams.isEmpty else { return }
+        if internationalTournaments.isEmpty {
+            internationalTournaments = InternationalTournamentBuilder.build(from: nationalTeams)
+        }
+    }
+
+    public func nationalTeam(withId id: String) -> NationalTeam? {
+        nationalTeams.first { $0.id == id }
+    }
+
+    /// The national team the user currently manages, if any.
+    public var managedNationalTeam: NationalTeam? {
+        guard let id = managedNationalTeamId else { return nil }
+        return nationalTeam(withId: id)
+    }
+
+    /// Takes charge of a national team.
+    public func takeOverNationalTeam(id: String) {
+        guard nationalTeams.contains(where: { $0.id == id }) else { return }
+        managedNationalTeamId = id
+        if let team = nationalTeam(withId: id) {
+            addNews(
+                headline: "You Are the New \(team.name) Manager",
+                body: "The \(team.name) federation has appointed you as head coach. Your first task is to prepare the squad for international competition.",
+                category: .board,
+                sender: "\(team.name) Federation"
+            )
+        }
+    }
+
+    public func resignNationalTeam() {
+        managedNationalTeamId = nil
+    }
+
+    /// Advances all international tournaments one round, simulating every unplayed
+    /// fixture from national-team strength.
+    public func advanceInternationalTournaments() {
+        guard !internationalTournaments.isEmpty else { return }
+        for idx in internationalTournaments.indices {
+            var tournament = internationalTournaments[idx]
+            tournament.simulateAll { [weak self] homeId, awayId in
+                guard let self,
+                      let home = self.nationalTeam(withId: homeId),
+                      let away = self.nationalTeam(withId: awayId) else { return (0, 0) }
+                return Self.simulateNationalScore(home: home.strength, away: away.strength)
+            }
+
+            if tournament.stage == .complete, tournament.championId != nil,
+               internationalTournaments[idx].championId == nil,
+               let championId = tournament.championId {
+                let name = nationalTeam(withId: championId)?.name ?? championId
+                addNews(
+                    headline: "\(name) Win the \(tournament.kind.displayName)!",
+                    body: "\(name) are crowned champions of the \(tournament.kind.displayName).",
+                    category: .award
+                )
+            }
+
+            internationalTournaments[idx] = tournament
+        }
+    }
+
+    /// A lightweight international scoreline from two teams' strengths.
+    static func simulateNationalScore(home: Double, away: Double) -> (Int, Int) {
+        let diff = ((home + 2.0) - away) / 8.0   // small home advantage
+        var rng = SystemRandomNumberGenerator()
+        func goals(for attackDiff: Double) -> Int {
+            let expected = max(0.15, 1.25 + attackDiff)
+            var goals = 0
+            let probability = expected / (expected + 1.0)
+            for _ in 0..<6 {
+                if Double.random(in: 0...1, using: &rng) < probability * 0.85 { goals += 1 }
+            }
+            return min(goals, 6)
+        }
+        return (goals(for: diff), goals(for: -diff))
+    }
+
+
         func strength(_ club: Club) -> Double {
             let xi = club.players.sorted { $0.overall > $1.overall }.prefix(11)
             guard !xi.isEmpty else { return 60 }
@@ -1800,10 +1901,14 @@ public final class GameState: Codable {
         case activeMatchFixtureId
         case negotiationTargetPlayerId
         case soundEnabled
+        case matchSettings
         case manager
         case jobOffers
         case europeanCompetitions
         case europeanMatchweek
+        case nationalTeams
+        case internationalTournaments
+        case managedNationalTeamId
     }
     
     public func encode(to encoder: Encoder) throws {
@@ -1822,10 +1927,14 @@ public final class GameState: Codable {
         try container.encodeIfPresent(activeMatchFixtureId, forKey: .activeMatchFixtureId)
         try container.encodeIfPresent(negotiationTargetPlayerId, forKey: .negotiationTargetPlayerId)
         try container.encode(soundEnabled, forKey: .soundEnabled)
+        try container.encode(matchSettings, forKey: .matchSettings)
         try container.encode(manager, forKey: .manager)
         try container.encode(jobOffers, forKey: .jobOffers)
         try container.encode(europeanCompetitions, forKey: .europeanCompetitions)
         try container.encode(europeanMatchweek, forKey: .europeanMatchweek)
+        try container.encode(nationalTeams, forKey: .nationalTeams)
+        try container.encode(internationalTournaments, forKey: .internationalTournaments)
+        try container.encodeIfPresent(managedNationalTeamId, forKey: .managedNationalTeamId)
     }
     
     public required init(from decoder: Decoder) throws {
@@ -1844,9 +1953,13 @@ public final class GameState: Codable {
         self.activeMatchFixtureId = try container.decodeIfPresent(UUID.self, forKey: .activeMatchFixtureId)
         self.negotiationTargetPlayerId = try container.decodeIfPresent(UUID.self, forKey: .negotiationTargetPlayerId)
         self.soundEnabled = try container.decodeIfPresent(Bool.self, forKey: .soundEnabled) ?? true
+        self.matchSettings = try container.decodeIfPresent(MatchSettings.self, forKey: .matchSettings) ?? MatchSettings()
         self.manager = try container.decodeIfPresent(ManagerProfile.self, forKey: .manager) ?? ManagerProfile()
         self.jobOffers = try container.decodeIfPresent([JobOffer].self, forKey: .jobOffers) ?? []
         self.europeanCompetitions = try container.decodeIfPresent([EuropeanCompetitionState].self, forKey: .europeanCompetitions) ?? []
         self.europeanMatchweek = try container.decodeIfPresent(Int.self, forKey: .europeanMatchweek) ?? 0
+        self.nationalTeams = try container.decodeIfPresent([NationalTeam].self, forKey: .nationalTeams) ?? []
+        self.internationalTournaments = try container.decodeIfPresent([InternationalTournament.State].self, forKey: .internationalTournaments) ?? []
+        self.managedNationalTeamId = try container.decodeIfPresent(String.self, forKey: .managedNationalTeamId)
     }
 }

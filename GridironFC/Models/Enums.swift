@@ -303,6 +303,33 @@ public enum PressingIntensity: String, Codable, CaseIterable, Identifiable, Hash
         case .high: return 1.25
         }
     }
+    
+    /// Position on the tactics slider (0 = lowest).
+    public var sliderIndex: Int {
+        switch self {
+        case .low: return 0
+        case .medium: return 1
+        case .high: return 2
+        }
+    }
+    
+    public static func fromSlider(_ index: Int) -> PressingIntensity? {
+        switch index {
+        case 0: return .low
+        case 1: return .medium
+        case 2: return .high
+        default: return nil
+        }
+    }
+    
+    /// How much this pressing level denies the opponent's attacking chances.
+    public var defensiveMultiplier: Double {
+        switch self {
+        case .low: return 0.90
+        case .medium: return 1.00
+        case .high: return 1.12
+        }
+    }
 }
 
 public enum Tempo: String, Codable, CaseIterable, Identifiable, Hashable {
@@ -319,6 +346,23 @@ public enum Tempo: String, Codable, CaseIterable, Identifiable, Hashable {
         case .fast: return "Fast & Direct"
         }
     }
+    
+    public var sliderIndex: Int {
+        switch self {
+        case .slow: return 0
+        case .normal: return 1
+        case .fast: return 2
+        }
+    }
+    
+    public static func fromSlider(_ index: Int) -> Tempo? {
+        switch index {
+        case 0: return .slow
+        case 1: return .normal
+        case 2: return .fast
+        default: return nil
+        }
+    }
 }
 
 public enum Width: String, Codable, CaseIterable, Identifiable, Hashable {
@@ -333,6 +377,40 @@ public enum Width: String, Codable, CaseIterable, Identifiable, Hashable {
         case .narrow: return "Narrow"
         case .normal: return "Balanced"
         case .wide: return "Wide"
+        }
+    }
+    
+    /// A defensive bonus for compact narrow shapes; a chance-creation edge for width.
+    public var defensiveMultiplier: Double {
+        switch self {
+        case .narrow: return 1.08
+        case .normal: return 1.00
+        case .wide: return 0.94
+        }
+    }
+    
+    public var attackingMultiplier: Double {
+        switch self {
+        case .narrow: return 0.94
+        case .normal: return 1.00
+        case .wide: return 1.06
+        }
+    }
+    
+    public var sliderIndex: Int {
+        switch self {
+        case .narrow: return 0
+        case .normal: return 1
+        case .wide: return 2
+        }
+    }
+    
+    public static func fromSlider(_ index: Int) -> Width? {
+        switch index {
+        case 0: return .narrow
+        case 1: return .normal
+        case 2: return .wide
+        default: return nil
         }
     }
 }
@@ -353,6 +431,45 @@ public enum PassingStyle: String, Codable, CaseIterable, Identifiable, Hashable 
         case .direct: return "Direct Route"
         }
     }
+    
+    /// Possession retention: short passing keeps the ball, long/direct surrenders it.
+    public var possessionMultiplier: Double {
+        switch self {
+        case .short: return 1.08
+        case .mixed: return 1.00
+        case .long: return 0.95
+        case .direct: return 0.92
+        }
+    }
+    
+    /// Chance creation: direct/long produce more chances but lower quality.
+    public var chanceMultiplier: Double {
+        switch self {
+        case .short: return 0.96
+        case .mixed: return 1.00
+        case .long: return 1.05
+        case .direct: return 1.08
+        }
+    }
+    
+    public var sliderIndex: Int {
+        switch self {
+        case .short: return 0
+        case .mixed: return 1
+        case .long: return 2
+        case .direct: return 3
+        }
+    }
+    
+    public static func fromSlider(_ index: Int) -> PassingStyle? {
+        switch index {
+        case 0: return .short
+        case 1: return .mixed
+        case 2: return .long
+        case 3: return .direct
+        default: return nil
+        }
+    }
 }
 
 // MARK: - Formation Preset
@@ -368,6 +485,14 @@ public enum FormationPreset: String, Codable, CaseIterable, Identifiable, Hashab
     case f4321 = "4-3-2-1"
     case f3421 = "3-4-2-1"
     case f41212 = "4-1-2-1-2"
+    case f451 = "4-5-1"
+    case f4411 = "4-4-1-1"
+    case f3142 = "3-1-4-2"
+    case f4222 = "4-2-2-2"
+    case f5221 = "5-2-2-1"
+    case f3412 = "3-4-1-2"
+    case f4321wide = "4-3-3 (Attack)"
+    case f4312 = "4-3-1-2"
     
     public var id: String { rawValue }
     
@@ -396,6 +521,22 @@ public enum FormationPreset: String, Codable, CaseIterable, Identifiable, Hashab
             return [.GK, .CB, .CB, .CB, .LM, .CM, .CM, .RM, .CAM, .CAM, .ST]
         case .f41212:
             return [.GK, .LB, .CB, .CB, .RB, .CDM, .LM, .RM, .CAM, .ST, .ST]
+        case .f451:
+            return [.GK, .LB, .CB, .CB, .RB, .CDM, .LM, .CM, .CM, .RM, .ST]
+        case .f4411:
+            return [.GK, .LB, .CB, .CB, .RB, .LM, .CM, .CM, .RM, .CF, .ST]
+        case .f3142:
+            return [.GK, .CB, .CB, .CB, .CDM, .LWB, .CM, .CM, .RWB, .ST, .ST]
+        case .f4222:
+            return [.GK, .LB, .CB, .CB, .RB, .CDM, .CDM, .CAM, .CAM, .ST, .ST]
+        case .f5221:
+            return [.GK, .LWB, .CB, .CB, .CB, .RWB, .CM, .CM, .CAM, .CAM, .ST]
+        case .f3412:
+            return [.GK, .CB, .CB, .CB, .LM, .CM, .CM, .RM, .CAM, .ST, .ST]
+        case .f4321wide:
+            return [.GK, .LB, .CB, .CB, .RB, .CM, .CM, .CAM, .LW, .ST, .RW]
+        case .f4312:
+            return [.GK, .LB, .CB, .CB, .RB, .CM, .CM, .CM, .CAM, .ST, .ST]
         }
     }
     
@@ -409,6 +550,27 @@ public enum FormationPreset: String, Codable, CaseIterable, Identifiable, Hashab
     
     public var forwardCount: Int {
         defaultPositions.filter { $0.category == .forward }.count
+    }
+
+    /// Attacking bias from shape: more forwards / fewer defenders = more threat.
+    public var attackingBias: Double {
+        switch (defenderCount, forwardCount) {
+        case (3, 3...): return 1.06
+        case (3, _): return 1.03
+        case (4, 3...): return 1.02
+        case (5, _): return 0.96
+        default: return 1.00
+        }
+    }
+
+    /// Defensive bias from shape: more defenders = harder to break down.
+    public var defensiveBias: Double {
+        switch defenderCount {
+        case 5...: return 1.10
+        case 4: return 1.00
+        case 3: return 0.95
+        default: return 1.00
+        }
     }
 }
 
@@ -1177,6 +1339,8 @@ public enum AppScreen: Hashable, Codable {
     case matchHistory
     case europeanCompetitions
     case youthAcademy
+    case international
+    case news
     case playerDetail(UUID)
     
     private enum CodingKeys: String, CodingKey {
@@ -1239,6 +1403,10 @@ public enum AppScreen: Hashable, Codable {
             try container.encode("europeanCompetitions", forKey: .screenType)
         case .youthAcademy:
             try container.encode("youthAcademy", forKey: .screenType)
+        case .international:
+            try container.encode("international", forKey: .screenType)
+        case .news:
+            try container.encode("news", forKey: .screenType)
         case .playerDetail(let uuid):
             try container.encode("playerDetail", forKey: .screenType)
             try container.encode(uuid, forKey: .playerId)
@@ -1275,6 +1443,8 @@ public enum AppScreen: Hashable, Codable {
         case "matchHistory": self = .matchHistory
         case "europeanCompetitions": self = .europeanCompetitions
         case "youthAcademy": self = .youthAcademy
+        case "international": self = .international
+        case "news": self = .news
         case "playerDetail":
             let uuid = try container.decode(UUID.self, forKey: .playerId)
             self = .playerDetail(uuid)
