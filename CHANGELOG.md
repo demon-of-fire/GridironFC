@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Manager customisation** — every career now begins by creating your manager:
+  name, nationality, age, and four allocatable coaching attributes, with a
+  procedurally generated avatar. Your profile tracks reputation, a coaching
+  attribute card, and a season-by-season career history (positions, records,
+  honours).
+- **Start Unemployed** — a new career mode that begins without a club. Job offers
+  arrive based on your reputation; accept a role to begin work.
+- **Job offers & managerial mobility** — clubs approach you with vacancies, from
+  your inbox and a dedicated Job Offers screen. Accept to switch clubs (ending a
+  current stint) or decline. Reputation drifts with results.
+- **Player of the Match** — the full-time recap now names the match's best player
+  with their club and rating before the other details.
+- **My Profile / Job Offers** added to the in-game overflow menu.
 - **Transfer market search** — filter the market by position, minimum rating, and
   maximum age; sort by rating, value, age, or name; option to include free agents.
 - **Inbox tab** — the news inbox is now a first-class tab, seeded with board
