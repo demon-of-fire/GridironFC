@@ -59,6 +59,9 @@ public final class GameState: Codable {
     public var activeMatchFixtureId: UUID?
     public var negotiationTargetPlayerId: UUID?
     
+    // Preferences
+    public var soundEnabled: Bool
+    
     // MARK: - Initializer
     
     public init(
@@ -75,7 +78,8 @@ public final class GameState: Codable {
         currentScreen: AppScreen = .mainMenu,
         isMatchInProgress: Bool = false,
         activeMatchFixtureId: UUID? = nil,
-        negotiationTargetPlayerId: UUID? = nil
+        negotiationTargetPlayerId: UUID? = nil,
+        soundEnabled: Bool = true
     ) {
         self.gameMode = gameMode
         self.clubs = clubs
@@ -91,6 +95,7 @@ public final class GameState: Codable {
         self.isMatchInProgress = isMatchInProgress
         self.activeMatchFixtureId = activeMatchFixtureId
         self.negotiationTargetPlayerId = negotiationTargetPlayerId
+        self.soundEnabled = soundEnabled
     }
     
     // MARK: - Computed Properties
@@ -564,8 +569,33 @@ public final class GameState: Codable {
         return clubs[idx]
     }
     
+    // MARK: - Club Mutation Helpers
+
+    /// Replaces a club in world state with an updated copy, matched by id.
+    public func updateClub(_ updated: Club) {
+        guard let idx = clubs.firstIndex(where: { $0.id == updated.id }) else { return }
+        clubs[idx] = updated
+    }
+
+    /// Swaps a bench player into the starting XI (and the outgoing starter to the bench).
+    /// Used by the squad screen's tap-to-select substitution flow.
+    public func swapIntoStartingXI(playerId: UUID, replacing starterId: UUID) {
+        guard let idx = clubs.firstIndex(where: { $0.isUserClub }) else { return }
+        var club = clubs[idx]
+
+        guard let starterIdx = club.tactics.startingXI.firstIndex(of: starterId),
+              let benchIdx = club.tactics.substitutes.firstIndex(of: playerId) else {
+            return
+        }
+
+        club.tactics.startingXI[starterIdx] = playerId
+        club.tactics.substitutes[benchIdx] = starterId
+
+        clubs[idx] = club
+    }
+
     // MARK: - Season Transition
-    
+
     public func startNewSeason() {
         let years = season.year.components(separatedBy: "-")
         let startYearInt: Int
@@ -841,6 +871,7 @@ public final class GameState: Codable {
         case isMatchInProgress
         case activeMatchFixtureId
         case negotiationTargetPlayerId
+        case soundEnabled
     }
     
     public func encode(to encoder: Encoder) throws {
@@ -859,6 +890,7 @@ public final class GameState: Codable {
         try container.encode(isMatchInProgress, forKey: .isMatchInProgress)
         try container.encodeIfPresent(activeMatchFixtureId, forKey: .activeMatchFixtureId)
         try container.encodeIfPresent(negotiationTargetPlayerId, forKey: .negotiationTargetPlayerId)
+        try container.encode(soundEnabled, forKey: .soundEnabled)
     }
     
     public required init(from decoder: Decoder) throws {
@@ -877,5 +909,6 @@ public final class GameState: Codable {
         self.isMatchInProgress = try container.decode(Bool.self, forKey: .isMatchInProgress)
         self.activeMatchFixtureId = try container.decodeIfPresent(UUID.self, forKey: .activeMatchFixtureId)
         self.negotiationTargetPlayerId = try container.decodeIfPresent(UUID.self, forKey: .negotiationTargetPlayerId)
+        self.soundEnabled = try container.decodeIfPresent(Bool.self, forKey: .soundEnabled) ?? true
     }
 }

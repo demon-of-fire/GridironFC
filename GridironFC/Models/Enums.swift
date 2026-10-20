@@ -763,6 +763,8 @@ public enum AppScreen: Hashable, Codable {
     case staff
     case finances
     case settings
+    case mailbox
+    case matchHistory
     case playerDetail(UUID)
     
     private enum CodingKeys: String, CodingKey {
@@ -813,6 +815,10 @@ public enum AppScreen: Hashable, Codable {
             try container.encode("finances", forKey: .screenType)
         case .settings:
             try container.encode("settings", forKey: .screenType)
+        case .mailbox:
+            try container.encode("mailbox", forKey: .screenType)
+        case .matchHistory:
+            try container.encode("matchHistory", forKey: .screenType)
         case .playerDetail(let uuid):
             try container.encode("playerDetail", forKey: .screenType)
             try container.encode(uuid, forKey: .playerId)
@@ -843,6 +849,8 @@ public enum AppScreen: Hashable, Codable {
         case "staff": self = .staff
         case "finances": self = .finances
         case "settings": self = .settings
+        case "mailbox": self = .mailbox
+        case "matchHistory": self = .matchHistory
         case "playerDetail":
             let uuid = try container.decode(UUID.self, forKey: .playerId)
             self = .playerDetail(uuid)

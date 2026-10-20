@@ -124,6 +124,11 @@ public struct Player: Codable, Identifiable, Hashable {
         return positions.first ?? .CM
     }
     
+    /// Six headline attribute ratings for this player (GK-specific for keepers).
+    public var faceStats: [PlayerAttributes.FaceStat] {
+        attributes.faceStats(for: primaryPosition)
+    }
+    
     /// Stable deterministic seed for procedural face generation.
     /// Uses an FNV-1a hash of the UUID string so the face is identical across launches
     /// (unlike Swift's `hashValue`, which is randomized per process).
@@ -488,6 +493,59 @@ public struct PlayerAttributes: Codable, Hashable {
     public var gkAverage: Double {
         let stats = [reflexes, handling, gkPositioning, oneOnOnes, kicking, commandOfArea]
         return Double(stats.reduce(0, +)) / Double(stats.count)
+    }
+    
+    // MARK: - FIFA-Style Face Stats
+    
+    /// A single headline attribute shown on a compact player card.
+    public struct FaceStat: Identifiable, Hashable {
+        public let code: String      // e.g. "PAC"
+        public let label: String     // e.g. "Pace"
+        public let value: Int        // 1-99
+        
+        public var id: String { code }
+        
+        public init(code: String, label: String, value: Int) {
+            self.code = code
+            self.label = label
+            self.value = value
+        }
+    }
+    
+    private func blend(_ values: [(Int, Double)]) -> Int {
+        let total = values.reduce(0.0) { $0 + Double($1.0) * $1.1 }
+        let weight = values.reduce(0.0) { $0 + $1.1 }
+        guard weight > 0 else { return 50 }
+        return min(99, max(1, Int((total / weight).rounded())))
+    }
+    
+    /// Outfield face stats: Pace, Shooting, Passing, Dribbling, Defending, Physical.
+    public var outfieldFaceStats: [FaceStat] {
+        [
+            FaceStat(code: "PAC", label: "Pace", value: blend([(pace, 0.55), (agility, 0.25), (balance, 0.20)])),
+            FaceStat(code: "SHO", label: "Shooting", value: blend([(shooting, 0.55), (longShots, 0.20), (composure, 0.25)])),
+            FaceStat(code: "PAS", label: "Passing", value: blend([(passing, 0.55), (vision, 0.25), (crossing, 0.20)])),
+            FaceStat(code: "DRI", label: "Dribbling", value: blend([(dribbling, 0.55), (firstTouch, 0.25), (agility, 0.20)])),
+            FaceStat(code: "DEF", label: "Defending", value: blend([(tackling, 0.45), (marking, 0.35), (heading, 0.20)])),
+            FaceStat(code: "PHY", label: "Physical", value: blend([(strength, 0.45), (jumping, 0.25), (stamina, 0.30)]))
+        ]
+    }
+    
+    /// Goalkeeper face stats: Diving, Handling, Kicking, Reflexes, Speed, Positioning.
+    public var goalkeeperFaceStats: [FaceStat] {
+        [
+            FaceStat(code: "DIV", label: "Diving", value: blend([(reflexes, 0.40), (agility, 0.30), (jumping, 0.30)])),
+            FaceStat(code: "HAN", label: "Handling", value: blend([(handling, 0.65), (commandOfArea, 0.20), (strength, 0.15)])),
+            FaceStat(code: "KIC", label: "Kicking", value: blend([(kicking, 0.60), (passing, 0.40)])),
+            FaceStat(code: "REF", label: "Reflexes", value: blend([(reflexes, 0.70), (oneOnOnes, 0.30)])),
+            FaceStat(code: "SPD", label: "Speed", value: blend([(pace, 0.60), (agility, 0.40)])),
+            FaceStat(code: "POS", label: "Positioning", value: blend([(gkPositioning, 0.60), (positioning, 0.25), (concentration, 0.15)]))
+        ]
+    }
+    
+    /// Returns the correct set of six face stats for the given position.
+    public func faceStats(for position: Position) -> [FaceStat] {
+        position == .GK ? goalkeeperFaceStats : outfieldFaceStats
     }
     
     // MARK: - Position-Specific Overall Rating Calculation

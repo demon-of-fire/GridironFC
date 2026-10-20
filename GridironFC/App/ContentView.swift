@@ -38,6 +38,10 @@ public struct ContentView: View {
                 NegotiationView()
             case .settings:
                 SettingsView()
+            case .mailbox:
+                MailboxView()
+            case .matchHistory:
+                MatchHistoryView()
             case .playerDetail(let playerId):
                 PlayerDetailView(playerId: playerId)
             }
@@ -110,11 +114,27 @@ public struct InGameTabView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button(action: { gameState.advanceWeek() }) {
-                    Label("Advance Week", systemImage: "forward.fill")
+                Menu {
+                    Button {
+                        gameState.currentScreen = .mailbox
+                    } label: {
+                        Label("Inbox", systemImage: "tray.full")
+                    }
+                    Button {
+                        gameState.currentScreen = .matchHistory
+                    } label: {
+                        Label("Match History", systemImage: "sportscourt")
+                    }
+                    Divider()
+                    Button {
+                        gameState.currentScreen = .settings
+                    } label: {
+                        Label("Settings", systemImage: "gearshape")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
                 }
-                .accessibilityLabel("Advance Week")
-                .accessibilityHint("Simulates pending matches and proceeds to next calendar week")
+                .accessibilityLabel("More options")
             }
         }
     }
@@ -601,6 +621,32 @@ public struct DashboardView: View {
     public var body: some View {
         ScrollView {
             VStack(spacing: 20) {
+                // Primary action: single Continue button
+                Button(action: { gameState.advanceWeek() }) {
+                    HStack {
+                        Image(systemName: "play.circle.fill")
+                            .font(.title2)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Continue")
+                                .font(.headline)
+                            Text(continueSubtitle)
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.85))
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.footnote)
+                            .foregroundStyle(.white.opacity(0.8))
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(Color.accentColor)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+                .accessibilityLabel("Continue")
+                .accessibilityHint("Advances the calendar and simulates pending matches")
+
                 // Next Match Card
                 if let nextFixture = gameState.nextUserFixture,
                    let userClub = gameState.userClub,
@@ -779,44 +825,124 @@ public struct DashboardView: View {
         }
         .background(Color(UIColor.systemGroupedBackground))
     }
+
+    private var continueSubtitle: String {
+        if let fixture = gameState.nextUserFixture {
+            return "Next: Matchweek \(fixture.matchWeek) • \(fixture.date)"
+        }
+        return "Advance to the next calendar week"
+    }
 }
 
 // MARK: - Squad Screen
 
 public struct SquadView: View {
     @Environment(GameState.self) private var gameState
-    
+    @State private var selectedStarterId: UUID?
+    @State private var substitutionBanner: String?
+
     public var body: some View {
-        List {
+        ScrollView {
             if let userClub = gameState.userClub {
-                Section(header: Text("Starting XI (\(userClub.startingXIPlayers.count))")) {
-                    ForEach(userClub.startingXIPlayers) { player in
-                        NavigationLink(destination: PlayerDetailView(playerId: player.id)) {
-                            PlayerRowView(player: player)
+                VStack(spacing: 16) {
+                    FormationPitchView(
+                        formation: userClub.tactics.formation,
+                        players: userClub.startingXIPlayers,
+                        selectedPlayerId: selectedStarterId,
+                        onSelect: { player in
+                            if let selected = selectedStarterId, selected != player.id {
+                                selectedStarterId = nil
+                                substitutionBanner = nil
+                            } else {
+                                selectedStarterId = (selectedStarterId == player.id) ? nil : player.id
+                                if let id = selectedStarterId,
+                                   let p = userClub.players.first(where: { $0.id == id }) {
+                                    substitutionBanner = "Selected \(p.displayName) — tap a substitute below to swap."
+                                } else {
+                                    substitutionBanner = nil
+                                }
+                            }
                         }
-                        .accessiblePlayerCard(player: player, clubName: userClub.name)
+                    )
+                    .padding(.horizontal)
+
+                    if let banner = substitutionBanner {
+                        Text(banner)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal)
                     }
+
+                    squadSection(
+                        title: "Substitutes (\(userClub.substitutePlayers.count))",
+                        players: userClub.substitutePlayers,
+                        clubName: userClub.name,
+                        isBench: true
+                    )
+
+                    squadSection(
+                        title: "Reserves (\(userClub.reservePlayers.count))",
+                        players: userClub.reservePlayers,
+                        clubName: userClub.name,
+                        isBench: false
+                    )
                 }
-                
-                Section(header: Text("Substitutes (\(userClub.substitutePlayers.count))")) {
-                    ForEach(userClub.substitutePlayers) { player in
+                .padding(.vertical)
+            } else {
+                ContentUnavailableView("No Club", systemImage: "person.3", description: Text("Take charge of a club to view your squad."))
+            }
+        }
+        .background(Color(UIColor.systemGroupedBackground))
+    }
+
+    @ViewBuilder
+    private func squadSection(title: String, players: [Player], clubName: String, isBench: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+                .padding(.horizontal)
+
+            ForEach(players) { player in
+                VStack(spacing: 0) {
+                    if isBench && selectedStarterId != nil {
+                        Button {
+                            if let starterId = selectedStarterId {
+                                gameState.swapIntoStartingXI(playerId: player.id, replacing: starterId)
+                                selectedStarterId = nil
+                                substitutionBanner = nil
+                            }
+                        } label: {
+                            HStack {
+                                PlayerRowView(player: player)
+                                Spacer(minLength: 4)
+                                Image(systemName: "arrow.up.arrow.down.circle.fill")
+                                    .foregroundStyle(Color.accentColor)
+                                    .font(.title3)
+                            }
+                            .padding(.vertical, 6)
+                            .padding(.horizontal)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Bring on \(player.fullName)")
+                        .accessibilityHint("Substitutes this player into the starting eleven")
+                    } else {
                         NavigationLink(destination: PlayerDetailView(playerId: player.id)) {
                             PlayerRowView(player: player)
+                                .padding(.vertical, 4)
+                                .padding(.horizontal)
                         }
-                        .accessiblePlayerCard(player: player, clubName: userClub.name)
+                        .buttonStyle(.plain)
+                        .accessiblePlayerCard(player: player, clubName: clubName)
                     }
-                }
-                
-                Section(header: Text("Reserves (\(userClub.reservePlayers.count))")) {
-                    ForEach(userClub.reservePlayers) { player in
-                        NavigationLink(destination: PlayerDetailView(playerId: player.id)) {
-                            PlayerRowView(player: player)
-                        }
-                        .accessiblePlayerCard(player: player, clubName: userClub.name)
-                    }
+                    Divider().padding(.leading)
                 }
             }
         }
+        .padding(.vertical, 4)
+        .background(Color(UIColor.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .padding(.horizontal)
     }
 }
 
@@ -824,35 +950,40 @@ public struct PlayerRowView: View {
     public let player: Player
     
     public var body: some View {
-        HStack(spacing: 12) {
-            FaceView(player: player, size: 40)
-            
-            Text(player.primaryPosition.abbreviation)
-                .font(.caption)
-                .fontWeight(.bold)
-                .frame(width: 38, height: 26)
-                .background(player.primaryPosition.category.accentColor.opacity(0.2))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-            
-            VStack(alignment: .leading, spacing: 2) {
-                Text(player.fullName)
-                    .font(.body)
-                    .fontWeight(.medium)
-                Text("Age \(player.age) • \(player.statusBadgeText)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            
-            Spacer()
-            
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("\(player.overall)")
-                    .font(.headline)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                FaceView(player: player, size: 40)
+                
+                Text(player.primaryPosition.abbreviation)
+                    .font(.caption)
                     .fontWeight(.bold)
-                Text(player.formattedValue)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .frame(width: 38, height: 26)
+                    .background(player.primaryPosition.category.accentColor.opacity(0.2))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(player.fullName)
+                        .font(.body)
+                        .fontWeight(.medium)
+                    Text("Age \(player.age) • \(player.statusBadgeText)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                
+                Spacer()
+                
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(player.overall)")
+                        .font(.headline)
+                        .fontWeight(.bold)
+                    Text(player.formattedValue)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
+            
+            FaceStatStripView(player: player)
+                .padding(.leading, 52)
         }
     }
 }
@@ -1152,60 +1283,124 @@ public struct PostMatchView: View {
     @Environment(GameState.self) private var gameState
     
     public var body: some View {
-        VStack(spacing: 20) {
-            if let fixture = gameState.activeMatchFixture,
-               let res = fixture.result,
-               let home = gameState.club(withId: fixture.homeClubId),
-               let away = gameState.club(withId: fixture.awayClubId) {
-                
-                Text("Full Time")
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .foregroundStyle(.secondary)
-                
-                HStack(spacing: 24) {
-                    VStack {
-                        Text(home.shortName).font(.title).fontWeight(.bold)
-                        Text("\(res.homeGoals)").font(.system(size: 48, weight: .black))
+        ScrollView {
+            VStack(spacing: 20) {
+                if let fixture = gameState.activeMatchFixture,
+                   let res = fixture.result,
+                   let home = gameState.club(withId: fixture.homeClubId),
+                   let away = gameState.club(withId: fixture.awayClubId) {
+                    
+                    Text("Full Time")
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundStyle(.secondary)
+                    
+                    HStack(spacing: 24) {
+                        VStack {
+                            Text(home.shortName).font(.title).fontWeight(.bold)
+                            Text("\(res.homeGoals)").font(.system(size: 48, weight: .black))
+                        }
+                        Text("-").font(.title).foregroundStyle(.secondary)
+                        VStack {
+                            Text(away.shortName).font(.title).fontWeight(.bold)
+                            Text("\(res.awayGoals)").font(.system(size: 48, weight: .black))
+                        }
                     }
-                    Text("-").font(.title).foregroundStyle(.secondary)
-                    VStack {
-                        Text(away.shortName).font(.title).fontWeight(.bold)
-                        Text("\(res.awayGoals)").font(.system(size: 48, weight: .black))
-                    }
-                }
-                
-                // Match Stats Overview
-                VStack(spacing: 8) {
-                    StatComparisonRow(title: "Possession", home: "\(Int(res.homeStats.possession))%", away: "\(Int(res.awayStats.possession))%")
-                    StatComparisonRow(title: "Shots", home: "\(res.homeStats.shots)", away: "\(res.awayStats.shots)")
-                    StatComparisonRow(title: "Shots on Target", home: "\(res.homeStats.shotsOnTarget)", away: "\(res.awayStats.shotsOnTarget)")
-                    StatComparisonRow(title: "Expected Goals (xG)", home: String(format: "%.2f", res.homeStats.xG), away: String(format: "%.2f", res.awayStats.xG))
-                }
-                .padding()
-                .background(Color(UIColor.secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-                .padding(.horizontal)
-                
-                Spacer()
-                
-                Button(action: {
-                    gameState.currentScreen = .dashboard
-                }) {
-                    Text("Return to Dashboard")
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity)
+                    
+                    // Goal timeline
+                    if !res.goalEvents.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Goals")
+                                .font(.headline)
+                            ForEach(res.goalEvents) { event in
+                                HStack(spacing: 10) {
+                                    Text("\(event.minute)'")
+                                        .font(.caption)
+                                        .fontWeight(.bold)
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 34, alignment: .trailing)
+                                    Image(systemName: "soccerball")
+                                        .foregroundStyle(.primary)
+                                    Text(event.shortText)
+                                        .font(.subheadline)
+                                    Spacer()
+                                    Text(event.isHomeTeam ? home.shortName : away.shortName)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
                         .padding()
-                        .background(Color.accentColor)
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(UIColor.secondarySystemGroupedBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .padding(.horizontal)
+                    }
+                    
+                    // Match Stats Overview
+                    VStack(spacing: 8) {
+                        StatComparisonRow(title: "Possession", home: "\(Int(res.homeStats.possession))%", away: "\(Int(res.awayStats.possession))%")
+                        StatComparisonRow(title: "Shots", home: "\(res.homeStats.shots)", away: "\(res.awayStats.shots)")
+                        StatComparisonRow(title: "Shots on Target", home: "\(res.homeStats.shotsOnTarget)", away: "\(res.awayStats.shotsOnTarget)")
+                        StatComparisonRow(title: "Corners", home: "\(res.homeStats.corners)", away: "\(res.awayStats.corners)")
+                        StatComparisonRow(title: "Fouls", home: "\(res.homeStats.fouls)", away: "\(res.awayStats.fouls)")
+                        StatComparisonRow(title: "Expected Goals (xG)", home: String(format: "%.2f", res.homeStats.xG), away: String(format: "%.2f", res.awayStats.xG))
+                    }
+                    .padding()
+                    .background(Color(UIColor.secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .padding(.horizontal)
+                    
+                    if res.attendance > 0 {
+                        Text("Attendance: \(res.attendance.formatted())")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    VStack(spacing: 12) {
+                        Button(action: {
+                            gameState.currentScreen = .matchHistory
+                        }) {
+                            Label("View Match History", systemImage: "list.bullet.rectangle")
+                                .fontWeight(.semibold)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.secondary.opacity(0.15))
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        
+                        Button(action: {
+                            gameState.currentScreen = .dashboard
+                        }) {
+                            Text("Return to Dashboard")
+                                .fontWeight(.semibold)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.accentColor)
+                                .foregroundStyle(.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                    }
+                    .padding(.horizontal, 32)
+                } else {
+                    ContentUnavailableView("No Match Summary", systemImage: "sportscourt", description: Text("Play a match to see the full-time recap."))
                 }
-                .padding(.horizontal, 32)
             }
+            .padding(.vertical)
         }
-        .padding(.vertical)
         .navigationTitle("Match Summary")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            guard let fixture = gameState.activeMatchFixture,
+                  let res = fixture.result,
+                  let userClub = gameState.userClub else { return }
+            let outcome = res.outcomeLetter(for: userClub.id)
+            switch outcome {
+            case "W": SoundManager.shared.play(.win, enabled: gameState.soundEnabled)
+            case "L": SoundManager.shared.play(.loss, enabled: gameState.soundEnabled)
+            default: SoundManager.shared.play(.draw, enabled: gameState.soundEnabled)
+            }
+        }
     }
 }
 
@@ -1297,6 +1492,16 @@ public struct PlayerDetailView: View {
                     }
                     .padding()
                     .frame(maxWidth: .infinity)
+                    .background(Color(UIColor.secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    
+                    // Headline face stats (FIFA-style)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(player.primaryPosition == .GK ? "Goalkeeping" : "Face Stats")
+                            .font(.headline)
+                        FaceStatGridView(player: player)
+                    }
+                    .padding()
                     .background(Color(UIColor.secondarySystemGroupedBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                     
@@ -1393,6 +1598,16 @@ public struct SettingsView: View {
     
     public var body: some View {
         List {
+            Section(header: Text("Preferences")) {
+                Toggle(isOn: Binding(
+                    get: { gameState.soundEnabled },
+                    set: { gameState.soundEnabled = $0 }
+                )) {
+                    Label("Sound Effects", systemImage: "speaker.wave.2.fill")
+                }
+                .accessibilityHint("Plays sound and haptic feedback for goals, wins and losses")
+            }
+            
             Section(header: Text("Manual Save Slots")) {
                 ForEach([SaveSlot.slot1, SaveSlot.slot2, SaveSlot.slot3], id: \.self) { slot in
                     let metadata = SaveManager.shared.getMetadata(for: slot)
