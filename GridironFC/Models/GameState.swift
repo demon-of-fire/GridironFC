@@ -22,6 +22,9 @@ public struct NewsItem: Codable, Identifiable, Hashable {
     public var sender: String
     /// Whether the manager has opened this message.
     public var isRead: Bool
+    /// When set, this message is an actionable transfer negotiation and links to
+    /// the referenced offer so the inbox can present Accept / Reject / Counter.
+    public var transferOfferId: UUID?
 
     public init(
         id: UUID = UUID(),
@@ -30,7 +33,8 @@ public struct NewsItem: Codable, Identifiable, Hashable {
         date: String,
         category: NewsCategory,
         sender: String = "Club News Desk",
-        isRead: Bool = false
+        isRead: Bool = false,
+        transferOfferId: UUID? = nil
     ) {
         self.id = id
         self.headline = headline
@@ -39,10 +43,11 @@ public struct NewsItem: Codable, Identifiable, Hashable {
         self.category = category
         self.sender = sender
         self.isRead = isRead
+        self.transferOfferId = transferOfferId
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, headline, body, date, category, sender, isRead
+        case id, headline, body, date, category, sender, isRead, transferOfferId
     }
 
     public init(from decoder: Decoder) throws {
@@ -54,6 +59,7 @@ public struct NewsItem: Codable, Identifiable, Hashable {
         category = try c.decode(NewsCategory.self, forKey: .category)
         sender = try c.decodeIfPresent(String.self, forKey: .sender) ?? "Club News Desk"
         isRead = try c.decodeIfPresent(Bool.self, forKey: .isRead) ?? false
+        transferOfferId = try c.decodeIfPresent(UUID.self, forKey: .transferOfferId)
     }
 }
 
@@ -348,8 +354,10 @@ public final class GameState: Codable {
             clubs[clubIdx].finances.processWeeklyCashFlow(isHomeMatchThisWeek: isHomeMatch)
         }
         
-        // 3. AI manager autonomous dealings
+        // 3. AI manager autonomous dealings and transfer negotiation resolution
         processAITransfers()
+        processTransferNegotiations()
+        processAIIncomingBids()
         
         // 4. Advance calendar date by 7 days
         let formatter = DateFormatter()
@@ -472,9 +480,10 @@ public final class GameState: Codable {
     
     // MARK: - User Transfer Bidding
     
-    /// Submits a transfer bid from the user's club for a player at another club,
-    /// or signs a free agent. Resolves the offer immediately against the selling
-    /// club's valuation and the user's budget, returning the resulting offer record.
+    /// Opens a transfer negotiation by submitting an opening bid from the user's
+    /// club for a player at another club, or signing a free agent. Bids are no
+    /// longer resolved instantly: they are logged as live offers and the selling
+    /// club responds (accept / reject / counter) over the following weeks.
     @discardableResult
     public func submitTransferBid(
         playerId: UUID,
@@ -486,7 +495,7 @@ public final class GameState: Codable {
               let buyerIdx = clubs.firstIndex(where: { $0.id == userClubId }) else {
             return nil
         }
-        
+
         // Resolve the target player and their current club (nil = free agent).
         var sellerIdx: Int? = nil
         var targetPlayer: Player? = nil
@@ -504,10 +513,12 @@ public final class GameState: Codable {
         } else {
             isFreeAgent = false
         }
-        
+
         guard let player = targetPlayer else { return nil }
-        
-        let askingPrice = player.value
+
+        let buyer = clubs[buyerIdx]
+        let askingPrice = sellingValuation(for: player, at: sellerIdx.map { clubs[$0] }, buyerReputation: buyer.reputation)
+
         var offer = TransferOffer(
             playerId: playerId,
             fromClubId: sellerIdx.map { clubs[$0].id } ?? UUID(),
@@ -516,55 +527,429 @@ public final class GameState: Codable {
             isLoan: false,
             status: .pending,
             offeredWage: offeredWage,
-            contractYears: contractYears
+            contractYears: contractYears,
+            askingPrice: askingPrice,
+            isIncoming: false,
+            createdDate: season.currentDate,
+            weeksUntilResponse: isFreeAgent ? 0 : 1
         )
-        
-        // Budget check: transfer fee plus first-year wage commitment must fit.
-        let buyer = clubs[buyerIdx]
+
+        // Budget sanity: the buyer can never commit more than the bank allows.
         let canAffordFee = isFreeAgent || fee <= buyer.finances.transferBudget
-        let wageHeadroom = buyer.finances.wageBudget - buyer.finances.currentWageBill
-        // A signing is permitted as long as the new wage is covered by existing headroom,
-        // or does not blow more than ~20% past the current wage structure. This avoids the
-        // situation where a club sitting exactly at its wage ceiling can never sign anyone.
-        let wageCeiling = max(wageHeadroom, 0) + Int(Double(max(buyer.finances.wageBudget, 1)) * 0.20) + 2_000
-        let canAffordWage = offeredWage <= wageCeiling || offeredWage <= max(wageHeadroom, 0) + 8_000
-        
-        // Selling club decision: accept when the bid meets or beats their valuation,
-        // with a graded tolerance for near-misses.
-        let valuation = Double(askingPrice)
-        let acceptableFee: Bool
-        if isFreeAgent {
-            acceptableFee = true
-        } else if Double(fee) >= valuation {
-            acceptableFee = true
-        } else if Double(fee) >= valuation * 0.9 {
-            acceptableFee = true
-        } else if Double(fee) >= valuation * 0.75 {
-            acceptableFee = Double.random(in: 0...1) < 0.4
-        } else {
-            acceptableFee = false
-        }
-        
-        if !canAffordFee || !canAffordWage || !acceptableFee {
+        if !canAffordFee {
             offer.status = .rejected
             pendingTransferOffers.append(offer)
             addNews(
                 headline: "Bid for \(player.fullName) Rejected",
-                body: !canAffordFee
-                    ? "The transfer fee exceeded \(buyer.name)'s budget."
-                    : (!canAffordWage
-                        ? "The offered wage exceeded \(buyer.name)'s wage structure."
-                        : "\(sellerIdx.map { clubs[$0].name } ?? "The club") rejected the bid for \(player.fullName)."),
-                category: .transfer
+                body: "The transfer fee exceeded \(buyer.name)'s budget. Raise funds before bidding again.",
+                category: .transfer,
+                sender: "Club Secretary"
             )
             return offer
         }
-        
-        completeSigning(player: player, buyerIdx: buyerIdx, sellerIdx: sellerIdx, fee: isFreeAgent ? 0 : fee, wage: offeredWage, years: contractYears)
-        offer.status = .completed
+
+        // Free agents go straight to personal terms; contract players await the club.
+        if isFreeAgent {
+            offer.status = .personalTerms
+        }
+
         pendingTransferOffers.append(offer)
+        addNews(
+            headline: "Bid Submitted for \(player.fullName)",
+            body: "You have tabled a \(Player.formatCurrency(fee)) bid\(isFreeAgent ? "" : " to \(sellerIdx.map { clubs[$0].name } ?? "the club")") for \(player.fullName). Expect a response in the coming days.",
+            category: .transfer,
+            sender: "Director of Football",
+            transferOfferId: offer.id
+        )
         return offer
     }
+
+    /// Realistic asking price: market value adjusted for the seller's need and
+    /// reputation, with a premium for players on long, secure contracts.
+    private func sellingValuation(for player: Player, at seller: Club?, buyerReputation: Int) -> Int {
+        var value = Double(player.value)
+        // Long contracts mean the seller can demand a premium; expiring deals a discount.
+        let years = Double(player.contract?.yearsRemaining ?? 1)
+        value *= 1.0 + max(0, min(3, years - 1)) * 0.12
+        // A big club selling to a smaller one digs in for more.
+        if let seller = seller {
+            let gap = Double(seller.reputation - buyerReputation)
+            value *= 1.0 + max(-0.15, min(0.35, gap / 100.0))
+        }
+        // Young high-potential players carry a scarcity premium.
+        if player.age <= 23, player.potential - player.overall >= 8 {
+            value *= 1.15
+        }
+        return max(10_000, Int(value))
+    }
+
+    /// The wage a player will demand to sign, scaling with their valuation and the
+    /// gap between the buyer and seller's stature.
+    private func wageDemand(for player: Player, buyer: Club, seller: Club?) -> Int {
+        let base = max(player.wage, player.value / 250)
+        var demand = Double(base)
+        if let seller = seller, seller.reputation > buyer.reputation {
+            demand *= 1.0 + min(0.5, Double(seller.reputation - buyer.reputation) / 120.0)
+        }
+        demand *= Double.random(in: 0.95...1.15)
+        return max(500, Int(demand))
+    }
+
+    /// Resolves every live transfer negotiation one step: selling clubs evaluate
+    /// bids (accept / reject / counter), players decide personal terms, and stances
+    /// are surfaced to the inbox. Runs each week from `advanceWeek`.
+    public func processTransferNegotiations() {
+        guard let userClubId = userClubId else {
+            // Even without a user club, age out stale offers.
+            pendingTransferOffers.removeAll { !$0.isLive && $0.weeksUntilResponse <= 0 }
+            return
+        }
+
+        for idx in pendingTransferOffers.indices {
+            guard pendingTransferOffers[idx].isLive else { continue }
+
+            // Count down the response timer.
+            if pendingTransferOffers[idx].weeksUntilResponse > 0 {
+                pendingTransferOffers[idx].weeksUntilResponse -= 1
+                continue
+            }
+
+            resolveOffer(at: idx, userClubId: userClubId)
+        }
+
+        // Drop offers that have been dead for a while to stop the array growing forever.
+        pruneResolvedOffers()
+    }
+
+    /// Resolves a single live offer based on its current status.
+    private func resolveOffer(at idx: Int, userClubId: UUID) {
+        var offer = pendingTransferOffers[idx]
+        guard let (player, _) = player(withId: offer.playerId) else {
+            offer.status = .withdrawn
+            pendingTransferOffers[idx] = offer
+            return
+        }
+
+        // Incoming bids (AI club bidding for a user player) are handled elsewhere;
+        // here we only auto-resolve outgoing user bids and free-agent terms.
+        guard !offer.isIncoming else { return }
+
+        switch offer.status {
+        case .personalTerms:
+            resolvePersonalTerms(at: idx, player: player, userClubId: userClubId)
+        case .pending, .counterOffer, .accepted:
+            resolveClubFee(at: idx, player: player, userClubId: userClubId)
+        default:
+            break
+        }
+    }
+
+    /// The selling club evaluates the (possibly countered) fee.
+    private func resolveClubFee(at idx: Int, player: Player, userClubId: UUID) {
+        var offer = pendingTransferOffers[idx]
+        guard let sellerIdx = clubs.firstIndex(where: { $0.id == offer.fromClubId }) else {
+            offer.status = .rejected
+            pendingTransferOffers[idx] = offer
+            return
+        }
+        let seller = clubs[sellerIdx]
+        let bid = Double(offer.fee)
+        let asking = Double(offer.askingPrice)
+
+        // Ladder of tolerance: met-or-beat is done; near-misses get a counter or a
+        // random accept; lowballs are rejected.
+        if bid >= asking {
+            offer.status = .completed
+            completeSigning(player: player, buyerIdx: clubs.firstIndex(where: { $0.id == userClubId })!, sellerIdx: sellerIdx, fee: offer.fee, wage: offer.offeredWage ?? player.wage, years: offer.contractYears ?? 3)
+            completeOfferMessage(offer, player: player)
+            pendingTransferOffers[idx] = offer
+            return
+        }
+
+        if bid >= asking * 0.9 {
+            // Close enough — the club usually accepts, sometimes counters once more.
+            if offer.negotiationRound >= 2 || Double.random(in: 0...1) < 0.6 {
+                offer.status = .completed
+                completeSigning(player: player, buyerIdx: clubs.firstIndex(where: { $0.id == userClubId })!, sellerIdx: sellerIdx, fee: offer.fee, wage: offer.offeredWage ?? player.wage, years: offer.contractYears ?? 3)
+                completeOfferMessage(offer, player: player)
+            } else {
+                issueCounter(at: idx, offer: offer, seller: seller, player: player)
+            }
+            pendingTransferOffers[idx] = offer
+            return
+        }
+
+        if bid >= asking * 0.7 {
+            // Meaningfully short — counter with a figure they can accept.
+            issueCounter(at: idx, offer: offer, seller: seller, player: player)
+            pendingTransferOffers[idx] = offer
+            return
+        }
+
+        // Lowball rejection.
+        offer.status = .rejected
+        pendingTransferOffers[idx] = offer
+        addNews(
+            headline: "Bid for \(player.fullName) Rejected",
+            body: "\(seller.name) dismissed your \(Player.formatCurrency(offer.fee)) bid as far below their valuation of \(Player.formatCurrency(offer.askingPrice)).",
+            category: .transfer,
+            sender: "Director of Football"
+        )
+    }
+
+    /// Issues a counter-offer from the selling club, routed to the inbox.
+    private func issueCounter(at idx: Int, offer: TransferOffer, seller: Club, player: Player) {
+        var offer = offer
+        let target: Double
+        if let existing = offer.counterFee {
+            // Converge toward the asking price from the last counter.
+            target = Double(existing) + (Double(offer.askingPrice) - Double(existing)) * 0.5
+        } else {
+            target = Double(offer.askingPrice)
+        }
+        offer.counterFee = Int(max(offer.fee, target))
+        offer.negotiationRound += 1
+        offer.status = .counterOffer
+        offer.weeksUntilResponse = 1
+        pendingTransferOffers[idx] = offer
+
+        addNews(
+            headline: "\(seller.name) Counter Your Bid for \(player.fullName)",
+            body: "\(seller.name) want \(Player.formatCurrency(offer.counterFee ?? offer.askingPrice)) for \(player.fullName) — your offer was \(Player.formatCurrency(offer.fee)). Accept, reject, or raise your bid.",
+            category: .transfer,
+            sender: seller.name,
+            transferOfferId: offer.id
+        )
+    }
+
+    /// A free agent (or a club-approved move) settles personal terms with the player.
+    private func resolvePersonalTerms(at idx: Int, player: Player, userClubId: UUID) {
+        var offer = pendingTransferOffers[idx]
+        guard let buyerIdx = clubs.firstIndex(where: { $0.id == userClubId }) else {
+            offer.status = .rejected
+            pendingTransferOffers[idx] = offer
+            return
+        }
+        let buyer = clubs[buyerIdx]
+        let sellerIdx = clubs.firstIndex(where: { $0.id == offer.fromClubId })
+        let demand = wageDemand(for: player, buyer: buyer, seller: sellerIdx.map { clubs[$0] })
+
+        if let offered = offer.offeredWage, offered >= demand {
+            offer.status = .completed
+            completeSigning(player: player, buyerIdx: buyerIdx, sellerIdx: sellerIdx, fee: offer.fee, wage: offered, years: offer.contractYears ?? 3)
+            completeOfferMessage(offer, player: player)
+            pendingTransferOffers[idx] = offer
+            return
+        }
+
+        // Player wants more — allow one counter, then accept or walk away.
+        if offer.negotiationRound < 1 {
+            offer.demandedWage = demand
+            offer.negotiationRound += 1
+            offer.status = .personalTerms
+            offer.weeksUntilResponse = 1
+            pendingTransferOffers[idx] = offer
+            addNews(
+                headline: "\(player.fullName)'s Agent Responds",
+                body: "\(player.fullName) is holding out for \(Player.formatCurrency(demand))/w. He is currently being offered \(Player.formatCurrency(offer.offeredWage ?? 0))/w. Meet the demand or withdraw.",
+                category: .transfer,
+                sender: "Agent of \(player.fullName)",
+                transferOfferId: offer.id
+            )
+        } else {
+            offer.status = .withdrawn
+            pendingTransferOffers[idx] = offer
+            addNews(
+                headline: "\(player.fullName) Talks Collapse",
+                body: "\(player.fullName) rejected your personal terms and the deal is off.",
+                category: .transfer,
+                sender: "Director of Football"
+            )
+        }
+    }
+
+    /// Records a completed signing in the inbox (user-facing).
+    private func completeOfferMessage(_ offer: TransferOffer, player: Player) {
+        guard let buyer = club(withId: offer.toClubId) else { return }
+        addNews(
+            headline: "\(player.fullName) Signs for \(buyer.name)!",
+            body: "The deal is done — \(player.fullName) joins \(buyer.name) for \(Player.formatCurrency(offer.fee)).",
+            category: .transfer,
+            sender: "Director of Football"
+        )
+    }
+
+    /// Removes resolved and ignored offers that have gone stale.
+    private func pruneResolvedOffers() {
+        pendingTransferOffers.removeAll { offer in
+            if offer.isLive { return false }
+            // Keep finished offers visible for a few weeks, then forget them.
+            return offer.weeksUntilResponse <= -3
+        }
+        // Tick down the display timer for dead offers.
+        for idx in pendingTransferOffers.indices where !pendingTransferOffers[idx].isLive {
+            pendingTransferOffers[idx].weeksUntilResponse -= 1
+        }
+    }
+
+    // MARK: - User Actions on Offers
+
+    /// The user accepts a counter-offer from a selling club, continuing the deal.
+    public func acceptCounter(offerId: UUID) {
+        guard let idx = pendingTransferOffers.firstIndex(where: { $0.id == offerId }) else { return }
+        var offer = pendingTransferOffers[idx]
+        guard let counter = offer.counterFee else { return }
+        offer.fee = counter
+        offer.status = .pending
+        offer.weeksUntilResponse = 1
+        pendingTransferOffers[idx] = offer
+        markOfferMailRead(offerId: offerId)
+
+        addNews(
+            headline: "You Accept the Counter for \(playerName(for: offer.playerId))",
+            body: "You have met the asking price of \(Player.formatCurrency(counter)). The clubs will now discuss personal terms.",
+            category: .transfer,
+            sender: "Director of Football"
+        )
+    }
+
+    /// The user walks away from an offer.
+    public func withdrawOffer(offerId: UUID) {
+        guard let idx = pendingTransferOffers.firstIndex(where: { $0.id == offerId }) else { return }
+        pendingTransferOffers[idx].status = .withdrawn
+        pendingTransferOffers[idx].weeksUntilResponse = 0
+        markOfferMailRead(offerId: offerId)
+        addNews(
+            headline: "Offer Withdrawn",
+            body: "You have withdrawn your bid for \(playerName(for: pendingTransferOffers[idx].playerId)).",
+            category: .transfer,
+            sender: "Director of Football"
+        )
+    }
+
+    /// The user raises their bid on an outgoing offer (renegotiation from the inbox).
+    public func bumpOffer(offerId: UUID, newFee: Int, newWage: Int? = nil) {
+        guard let idx = pendingTransferOffers.firstIndex(where: { $0.id == offerId }) else { return }
+        var offer = pendingTransferOffers[idx]
+        offer.fee = newFee
+        if let w = newWage { offer.offeredWage = w }
+        offer.status = .pending
+        offer.weeksUntilResponse = 1
+        pendingTransferOffers[idx] = offer
+        markOfferMailRead(offerId: offerId)
+
+        addNews(
+            headline: "Revised Bid Submitted",
+            body: "You have raised your bid for \(playerName(for: offer.playerId)) to \(Player.formatCurrency(newFee)).",
+            category: .transfer,
+            sender: "Director of Football"
+        )
+    }
+
+    /// The user accepts an AI club's incoming bid for one of their players.
+    public func acceptIncomingOffer(offerId: UUID) {
+        guard let idx = pendingTransferOffers.firstIndex(where: { $0.id == offerId }) else { return }
+        var offer = pendingTransferOffers[idx]
+        guard offer.isIncoming,
+              let (player, _) = player(withId: offer.playerId),
+              let sellerIdx = clubs.firstIndex(where: { $0.id == userClubId }),
+              let buyerIdx = clubs.firstIndex(where: { $0.id == offer.toClubId }) else { return }
+
+        completeSigning(player: player, buyerIdx: buyerIdx, sellerIdx: sellerIdx, fee: offer.fee, wage: offer.offeredWage ?? player.wage, years: offer.contractYears ?? 3)
+        offer.status = .completed
+        offer.weeksUntilResponse = 0
+        pendingTransferOffers[idx] = offer
+        markOfferMailRead(offerId: offerId)
+    }
+
+    /// The user rejects an AI club's incoming bid.
+    public func rejectIncomingOffer(offerId: UUID) {
+        guard let idx = pendingTransferOffers.firstIndex(where: { $0.id == offerId }) else { return }
+        var offer = pendingTransferOffers[idx]
+        guard offer.isIncoming else { return }
+        offer.status = .rejected
+        offer.weeksUntilResponse = 0
+        pendingTransferOffers[idx] = offer
+        markOfferMailRead(offerId: offerId)
+
+        addNews(
+            headline: "Bid for \(playerName(for: offer.playerId)) Rejected",
+            body: "You have turned down \(club(withId: offer.toClubId)?.name ?? "the club")'s \(Player.formatCurrency(offer.fee)) offer.",
+            category: .transfer,
+            sender: "Director of Football"
+        )
+    }
+
+    /// Marks any inbox message linked to an offer as read.
+    private func markOfferMailRead(offerId: UUID) {
+        for idx in news.indices where news[idx].transferOfferId == offerId {
+            news[idx].isRead = true
+        }
+    }
+
+    /// Returns the live offers the user still needs to act on.
+    public var actionableOffers: [TransferOffer] {
+        pendingTransferOffers.filter { $0.isLive }
+    }
+
+    private func playerName(for id: UUID) -> String {
+        player(withId: id)?.player.fullName ?? "the player"
+    }
+
+    // MARK: - AI Bidding for User Players
+
+    /// AI clubs occasionally bid for members of the user's squad, generating an
+    /// actionable inbox message the user must accept or reject.
+    public func processAIIncomingBids() {
+        guard let userIdx = clubs.firstIndex(where: { $0.isUserClub }) else { return }
+        let userClub = clubs[userIdx]
+        guard userClub.players.count > 18 else { return }
+
+        // Only a handful of realistic bids per week.
+        guard Double.random(in: 0...1) < 0.6 else { return }
+
+        // Find an AI club that can afford a squad player and wants them.
+        let candidates = clubs.enumerated().filter { !$0.element.isUserClub }
+        guard let (_, bidder) = candidates.randomElement() else { return }
+
+        // Target a non-star player the user might be willing to sell.
+        let sellable = userClub.players
+            .filter { $0.overall < 88 && $0.contract?.yearsRemaining ?? 0 <= 2 }
+            .sorted { $0.value < $1.value }
+        guard let target = sellable.first ?? userClub.players.min(by: { $0.overall < $1.overall }) else { return }
+
+        let bid = Int(Double(target.value) * Double.random(in: 1.0...1.6))
+        guard bid <= bidder.finances.transferBudget else { return }
+
+        // Avoid duplicate live bids for the same player.
+        guard !pendingTransferOffers.contains(where: { $0.playerId == target.id && $0.isLive }) else { return }
+
+        let wage = max(target.wage, Int(Double(bid) / 250))
+        var offer = TransferOffer(
+            playerId: target.id,
+            fromClubId: userClub.id,
+            toClubId: bidder.id,
+            fee: bid,
+            status: .pending,
+            offeredWage: wage,
+            contractYears: 3,
+            askingPrice: bid,
+            isIncoming: true,
+            createdDate: season.currentDate,
+            weeksUntilResponse: 0
+        )
+        offer.isIncoming = true
+        pendingTransferOffers.append(offer)
+
+        addNews(
+            headline: "\(bidder.name) Bid for \(target.fullName)",
+            body: "\(bidder.name) have offered \(Player.formatCurrency(bid)) for \(target.fullName). Accept the offer, reject it, or negotiate.",
+            category: .transfer,
+            sender: bidder.name,
+            transferOfferId: offer.id
+        )
+    }
+
     
     /// Executes the movement of a player between clubs (or free agency) and records it.
     private func completeSigning(
@@ -585,13 +970,24 @@ public final class GameState: Codable {
             fromClubName = clubs[sellerIdx].name
             fromClubId = clubs[sellerIdx].id
             _ = clubs[sellerIdx].removePlayer(withId: player.id)
-            clubs[sellerIdx].finances.transferBudget += fee
+            // Seller receives the fee, minus any agreed sell-on owed to the player's
+            // former club (approximated by a share of the fee when a sell-on exists).
+            var sellerProceeds = fee
+            if let sellOn = player.contract?.sellOnPercentage, sellOn > 0 {
+                let owed = Int(Double(fee) * sellOn)
+                sellerProceeds = max(0, fee - owed)
+                if let originIdx = clubs.firstIndex(where: { $0.id == fromClubId }), originIdx != sellerIdx {
+                    clubs[originIdx].finances.transferBudget += owed
+                }
+            }
+            clubs[sellerIdx].finances.transferBudget += sellerProceeds
         } else {
             freeAgents.removeAll { $0.id == player.id }
         }
         
         clubs[buyerIdx].finances.transferBudget -= fee
         clubs[buyerIdx].addPlayer(signed)
+        clubs[buyerIdx].finances.currentWageBill = clubs[buyerIdx].totalWeeklyWageBill
         
         transferHistory.append(
             TransferRecord(
@@ -604,12 +1000,6 @@ public final class GameState: Codable {
                 fee: fee,
                 date: season.currentDate
             )
-        )
-        
-        addNews(
-            headline: "\(signed.fullName) Signs for \(clubs[buyerIdx].name)!",
-            body: "\(clubs[buyerIdx].name) have completed the \(fee == 0 ? "free transfer" : "£" + String(fee)) signing of \(signed.fullName) from \(fromClubName).",
-            category: .transfer
         )
     }
     
@@ -698,6 +1088,36 @@ public final class GameState: Codable {
                 )
             }
         }
+
+        // Occasional AI-to-AI transfers between clubs, keeping the league fluid.
+        guard Double.random(in: 0...1) < 0.35 else { return }
+        let clubIndices = clubs.indices.filter { !clubs[$0].isUserClub && clubs[$0].players.count > 18 }
+        guard clubIndices.count >= 2 else { return }
+        guard let buyerIdx = clubIndices.randomElement() else { return }
+        let buyer = clubs[buyerIdx]
+        let sellers = clubIndices.filter { $0 != buyerIdx && clubs[$0].players.count > 20 }
+        guard let sellerIdx = sellers.randomElement() else { return }
+
+        // Target an affordable player from the seller's squad.
+        let affordable = clubs[sellerIdx].players.filter {
+            $0.value > 0 && $0.value <= buyer.finances.transferBudget
+        }
+        guard let target = affordable.randomElement(),
+              let playerIdx = clubs[sellerIdx].players.firstIndex(where: { $0.id == target.id }) else { return }
+
+        let fee = Int(Double(target.value) * Double.random(in: 1.0...1.4))
+        guard fee <= buyer.finances.transferBudget else { return }
+
+        let wage = max(target.wage, Int(Double(fee) / 260))
+        _ = playerIdx
+        completeSigning(
+            player: target,
+            buyerIdx: buyerIdx,
+            sellerIdx: sellerIdx,
+            fee: fee,
+            wage: wage,
+            years: 3
+        )
     }
     
     // MARK: - Club Creation Helper

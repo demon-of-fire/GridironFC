@@ -120,42 +120,126 @@ public struct MailboxView: View {
 }
 
 private struct MailRow: View {
+    @Environment(GameState.self) private var gameState
     let item: NewsItem
 
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: item.category.iconName)
-                .font(.title3)
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 30)
+    private var linkedOffer: TransferOffer? {
+        guard let id = item.transferOfferId else { return nil }
+        return gameState.pendingTransferOffers.first { $0.id == id }
+    }
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(item.sender)
-                        .font(.caption2)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.secondary)
-                    if !item.isRead {
-                        Circle()
-                            .fill(Color.accentColor)
-                            .frame(width: 7, height: 7)
-                            .accessibilityLabel("Unread")
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: item.category.iconName)
+                    .font(.title3)
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 30)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(item.sender)
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.secondary)
+                        if !item.isRead {
+                            Circle()
+                                .fill(Color.accentColor)
+                                .frame(width: 7, height: 7)
+                                .accessibilityLabel("Unread")
+                        }
                     }
+                    Text(item.headline)
+                        .font(.subheadline)
+                        .fontWeight(item.isRead ? .semibold : .bold)
+                    Text(item.body)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(item.date)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
-                Text(item.headline)
-                    .font(.subheadline)
-                    .fontWeight(item.isRead ? .semibold : .bold)
-                Text(item.body)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(item.date)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+            }
+
+            if let offer = linkedOffer, offer.isLive {
+                offerActions(offer)
+                    .padding(.leading, 42)
             }
         }
         .padding(.vertical, 4)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("\(item.isRead ? "" : "Unread. ")From \(item.sender). \(item.category.displayName). \(item.headline). \(item.body)")
+    }
+
+    @ViewBuilder
+    private func offerActions(_ offer: TransferOffer) -> some View {
+        let playerName = gameState.player(withId: offer.playerId)?.player.fullName ?? "the player"
+        if offer.isIncoming {
+            HStack(spacing: 10) {
+                Button {
+                    gameState.acceptIncomingOffer(offerId: offer.id)
+                } label: {
+                    Label("Accept \(Player.formatCurrency(offer.fee))", systemImage: "checkmark.circle")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button(role: .destructive) {
+                    gameState.rejectIncomingOffer(offerId: offer.id)
+                } label: {
+                    Label("Reject", systemImage: "xmark.circle")
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+            }
+            .accessibilityHint("Respond to the bid for \(playerName)")
+        } else if offer.status == .counterOffer, let counter = offer.counterFee {
+            HStack(spacing: 10) {
+                Button {
+                    gameState.acceptCounter(offerId: offer.id)
+                } label: {
+                    Label("Accept \(Player.formatCurrency(counter))", systemImage: "checkmark.circle")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button {
+                    gameState.markMailRead(id: item.id)
+                    gameState.negotiationTargetPlayerId = offer.playerId
+                    gameState.currentScreen = .negotiation
+                } label: {
+                    Label("Counter", systemImage: "arrow.left.arrow.right")
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+
+                Button(role: .destructive) {
+                    gameState.withdrawOffer(offerId: offer.id)
+                } label: {
+                    Label("Withdraw", systemImage: "xmark.circle")
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+            }
+        } else if offer.status == .personalTerms, let demand = offer.demandedWage {
+            HStack(spacing: 10) {
+                Button {
+                    gameState.bumpOffer(offerId: offer.id, newFee: offer.fee, newWage: demand)
+                } label: {
+                    Label("Pay \(Player.formatCurrency(demand))/w", systemImage: "checkmark.circle")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button(role: .destructive) {
+                    gameState.withdrawOffer(offerId: offer.id)
+                } label: {
+                    Label("Withdraw", systemImage: "xmark.circle")
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+            }
+        }
     }
 }
 

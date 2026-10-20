@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Realistic, multi-week transfer negotiations** — bids are no longer resolved
+  instantly. Selling clubs respond over the following weeks, either accepting,
+  rejecting, or issuing a **counter-offer** with a specific asking price. Free
+  agents negotiate personal terms, and players can hold out for a higher wage.
+- **Negotiations run through your inbox** — every offer, counter and rejection
+  arrives as actionable mail. Accept a counter, raise your bid, pay a player's
+  wage demand, or withdraw, all directly from the message. Your Inbox tab and
+  the Transfer Hub both surface outstanding negotiations.
+- **AI clubs bid for your players** — rival clubs now make offers for members of
+  your squad, which you can accept, reject, or reject-and-hold from the inbox.
+- **Smarter valuations** — asking prices account for contract length, the gap in
+  stature between clubs, and young high-potential talent. Sell-on clauses now
+  pay the player's former club a share of future fees.
+
 - **Youth academy** — every club now runs a youth academy. Prospects (aged
   15-18) develop toward their potential each season and a new intake arrives
   every summer, with quality scaling by academy level, reputation and division.

@@ -1412,6 +1412,15 @@ public struct TransferHubView: View {
                 }
             }
             
+            if !gameState.actionableOffers.isEmpty {
+                Section(header: Text("Active Negotiations (\(gameState.actionableOffers.count))")) {
+                    ForEach(gameState.actionableOffers) { offer in
+                        ActiveOfferRow(offer: offer)
+                    }
+                }
+                .accessibilityHint("Bids and offers awaiting a response")
+            }
+
             Section(header: Text("Free Agent Market (\(gameState.freeAgents.count))")) {
                 if gameState.freeAgents.isEmpty {
                     Text("No free agents currently scouting.")
@@ -1448,11 +1457,69 @@ public struct TransferHubView: View {
     }
 }
 
+// MARK: - Active Offer Row
+
+private struct ActiveOfferRow: View {
+    @Environment(GameState.self) private var gameState
+    let offer: TransferOffer
+
+    private var playerName: String {
+        gameState.player(withId: offer.playerId)?.player.fullName ?? "Player"
+    }
+
+    private var otherClubName: String {
+        let clubId = offer.isIncoming ? offer.toClubId : offer.fromClubId
+        return gameState.club(withId: clubId)?.name ?? "Club"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(playerName)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+            Text(offer.isIncoming
+                 ? "\(otherClubName) bid \(Player.formatCurrency(offer.fee))"
+                 : "Your bid to \(otherClubName): \(Player.formatCurrency(offer.fee))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            statusLabel
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(playerName), \(offer.isIncoming ? "incoming offer" : "outgoing bid"), \(statusDescription)")
+    }
+
+    private var statusDescription: String {
+        switch offer.status {
+        case .counterOffer: return "counter offer of \(Player.formatCurrency(offer.counterFee ?? offer.askingPrice))"
+        case .personalTerms: return "awaiting personal terms"
+        case .pending: return "awaiting response"
+        default: return offer.status.displayName
+        }
+    }
+
+    @ViewBuilder
+    private var statusLabel: some View {
+        switch offer.status {
+        case .counterOffer:
+            Text("Counter: \(Player.formatCurrency(offer.counterFee ?? offer.askingPrice)) — check your inbox")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+        case .personalTerms:
+            Text("Personal terms — check your inbox")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+        default:
+            Text("Awaiting response")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
 // MARK: - Player Search / Transfer Market
 
 public struct PlayerSearchView: View {
     @Environment(GameState.self) private var gameState
-
     @State private var positionCategory: PositionCategory? = nil
     @State private var minOverall = 0
     @State private var maxAge = 99
@@ -2126,10 +2193,17 @@ public struct NegotiationView: View {
     @State private var contractYears = 3
     @State private var outcomeMessage: String?
     @State private var showOutcome = false
+    @State private var didSubmit = false
     
     private var target: (player: Player, club: Club?)? {
         guard let id = gameState.negotiationTargetPlayerId else { return nil }
         return gameState.player(withId: id)
+    }
+    
+    /// The most recent live offer involving the current target and the user.
+    private var liveOffer: TransferOffer? {
+        guard let id = gameState.negotiationTargetPlayerId else { return nil }
+        return gameState.pendingTransferOffers.first { $0.playerId == id && $0.isLive && !$0.isIncoming }
     }
     
     public var body: some View {
@@ -2143,7 +2217,9 @@ public struct NegotiationView: View {
         .navigationTitle("Negotiate")
         .navigationBarTitleDisplayMode(.inline)
         .alert("Transfer Update", isPresented: $showOutcome) {
-            Button("OK") { gameState.currentScreen = .dashboard }
+            Button("OK") {
+                if !didSubmit { gameState.currentScreen = .dashboard }
+            }
         } message: {
             Text(outcomeMessage ?? "")
         }
@@ -2168,10 +2244,50 @@ public struct NegotiationView: View {
                 }
             }
             
+            if let offer = liveOffer, offer.status == .counterOffer, let counter = offer.counterFee {
+                Section(header: Text("Selling Club's Counter")) {
+                    HStack {
+                        Text("They want")
+                        Spacer()
+                        Text(Player.formatCurrency(counter)).fontWeight(.bold)
+                    }
+                    Text("Your last bid was \(Player.formatCurrency(offer.fee)). Accept it below or raise your offer.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button {
+                        gameState.acceptCounter(offerId: offer.id)
+                        gameState.negotiationTargetPlayerId = nil
+                        gameState.currentScreen = .dashboard
+                    } label: {
+                        Label("Accept \(Player.formatCurrency(counter))", systemImage: "checkmark.circle")
+                    }
+                    Button(role: .destructive) {
+                        gameState.withdrawOffer(offerId: offer.id)
+                        gameState.negotiationTargetPlayerId = nil
+                        gameState.currentScreen = .dashboard
+                    } label: {
+                        Label("Withdraw", systemImage: "xmark.circle")
+                    }
+                }
+            }
+            
+            if let offer = liveOffer, offer.status == .personalTerms, let demand = offer.demandedWage {
+                Section(header: Text("Player's Wage Demands")) {
+                    HStack {
+                        Text("He wants")
+                        Spacer()
+                        Text("\(Player.formatCurrency(demand))/w").fontWeight(.bold)
+                    }
+                    Text("Your last offer was \(Player.formatCurrency(offer.offeredWage ?? 0))/w. Meet the demand by resubmitting a bid below.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            
             Section(header: Text("Your Offer")) {
                 VStack(alignment: .leading) {
                     Text("Transfer Fee: \(Player.formatCurrency(Int(bidFee)))")
-                    Slider(value: $bidFee, in: 0...max(Double(player.value) * 1.5, 100_000), step: 50_000)
+                    Slider(value: $bidFee, in: 0...max(Double(player.value) * 2.0, 100_000), step: 50_000)
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Transfer fee")
@@ -2179,7 +2295,7 @@ public struct NegotiationView: View {
                 
                 VStack(alignment: .leading) {
                     Text("Weekly Wage: \(Player.formatCurrency(Int(wage)))/w")
-                    Slider(value: $wage, in: 500...max(Double(player.wage) * 3, 50_000), step: 500)
+                    Slider(value: $wage, in: 500...max(Double(player.wage) * 4, 80_000), step: 500)
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Weekly wage offer")
@@ -2207,7 +2323,7 @@ public struct NegotiationView: View {
             
             Section {
                 Button(action: submit) {
-                    Text("Submit Bid")
+                    Text(liveOffer?.status == .counterOffer ? "Raise Bid" : "Submit Bid")
                         .fontWeight(.bold)
                         .frame(maxWidth: .infinity)
                 }
@@ -2218,23 +2334,29 @@ public struct NegotiationView: View {
     
     private func primeFields() {
         guard let lookup = target else { return }
-        bidFee = Double(lookup.player.value)
+        if let offer = liveOffer, let counter = offer.counterFee, offer.status == .counterOffer {
+            bidFee = Double(counter)
+        } else {
+            bidFee = Double(lookup.player.value)
+        }
         wage = Double(max(lookup.player.wage, 1_000))
     }
     
     private func submit() {
         guard let id = gameState.negotiationTargetPlayerId else { return }
-        let offer = gameState.submitTransferBid(
-            playerId: id,
-            fee: Int(bidFee),
-            offeredWage: Int(wage),
-            contractYears: contractYears
-        )
-        if offer?.status == .completed {
-            outcomeMessage = "Deal completed! The player has signed for your club."
+        if let offer = liveOffer, offer.status == .counterOffer {
+            gameState.bumpOffer(offerId: offer.id, newFee: Int(bidFee), newWage: Int(wage))
+            outcomeMessage = "Your revised offer of \(Player.formatCurrency(Int(bidFee))) has been submitted. Await their response."
         } else {
-            outcomeMessage = "Your bid was rejected. The selling club wanted a higher fee or the wage was outside your budget."
+            gameState.submitTransferBid(
+                playerId: id,
+                fee: Int(bidFee),
+                offeredWage: Int(wage),
+                contractYears: contractYears
+            )
+            outcomeMessage = "Your bid has been submitted. The selling club will respond in the coming days — watch your inbox."
         }
+        didSubmit = true
         showOutcome = true
         try? SaveManager.shared.autoSave(gameState: gameState)
     }
