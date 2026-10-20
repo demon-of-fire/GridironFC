@@ -119,6 +119,11 @@ public struct Player: Codable, Identifiable, Hashable {
     public var fullName: String {
         return "\(firstName) \(lastName)"
     }
+
+    /// Stable signature used to detect the same player appearing more than once.
+    public var dedupeKey: String {
+        return "\(firstName.lowercased())|\(lastName.lowercased())|\(age)"
+    }
     
     public var primaryPosition: Position {
         return positions.first ?? .CM

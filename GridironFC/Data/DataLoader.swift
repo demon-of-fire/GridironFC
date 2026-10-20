@@ -83,7 +83,42 @@ public final class DataLoader {
             // Non-English leagues require their JSON; if missing they are omitted.
         }
 
+        // Remove duplicate players that appear in more than one club (the source
+        // dataset occasionally lists the same player at two clubs). Keep the copy
+        // at the higher-reputation club so the stronger side retains the player.
+        allClubs = deduplicatePlayers(across: allClubs)
+
         return (allClubs, allLeagues)
+    }
+
+    /// Removes duplicate players (same first name, last name and age) that appear
+    /// in more than one club, keeping the instance at the highest-reputation club.
+    private static func deduplicatePlayers(across clubs: [Club]) -> [Club] {
+        // Map a player signature to the index of the club that will retain them.
+        var keeper: [String: Int] = [:]
+        for (idx, club) in clubs.enumerated() {
+            for player in club.players {
+                let key = player.dedupeKey
+                if let existing = keeper[key] {
+                    if club.reputation > clubs[existing].reputation {
+                        keeper[key] = idx
+                    }
+                } else {
+                    keeper[key] = idx
+                }
+            }
+        }
+
+        var result: [Club] = []
+        result.reserveCapacity(clubs.count)
+        for (idx, club) in clubs.enumerated() {
+            var updated = club
+            updated.players = club.players.filter { player in
+                keeper[player.dedupeKey] == idx
+            }
+            result.append(updated)
+        }
+        return result
     }
 
     /// Candidate bundle resource names for a tier, in priority order.
