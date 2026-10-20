@@ -6,12 +6,15 @@ build/
 build-output/
 DerivedData/
 *.xcarchive
-*.ipa
 *.dSYM
 *.xcodeproj/
 *.xcworkspace/
 xcuserdata/
 *.xcuserstate
+
+# Build artifacts are ignored, EXCEPT released IPAs kept under releases/
+*.ipa
+!releases/**/*.ipa
 
 # Swift Package Manager
 .build/
