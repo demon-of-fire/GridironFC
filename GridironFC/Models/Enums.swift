@@ -602,28 +602,28 @@ public enum MatchEventType: String, Codable, CaseIterable, Identifiable, Hashabl
     
     public var id: String { rawValue }
     
-    /// Emoji representation for timeline rendering.
+    /// SF Symbol name for timeline rendering.
     public var icon: String {
         switch self {
-        case .kickOff: return "⏱"
-        case .goal: return "⚽"
-        case .ownGoal: return "⚽🤦"
-        case .chance: return "🎯"
-        case .chanceMissed: return "💨"
-        case .shotOnTarget: return "🧤"
-        case .yellowCard: return "🟡"
-        case .redCard, .secondYellow: return "🟥"
-        case .substitution: return "🔄"
-        case .injury: return "🏥"
-        case .penalty: return "⚽🅿️"
-        case .penaltyMissed: return "❌🅿️"
-        case .freeKick: return "🎯"
-        case .corner: return "🏁"
-        case .woodwork: return "🪵"
-        case .varDecision: return "📺"
-        case .halfTime, .fullTime: return "📋"
-        case .extraTimeStart, .penaltyShootout: return "⚡"
-        case .commentary: return "●"
+        case .kickOff: return "clock"
+        case .goal: return "soccerball"
+        case .ownGoal: return "soccerball.inverse"
+        case .chance: return "target"
+        case .chanceMissed: return "wind"
+        case .shotOnTarget: return "hand.raised"
+        case .yellowCard: return "rectangle.portrait.fill"
+        case .redCard, .secondYellow: return "rectangle.portrait.fill"
+        case .substitution: return "arrow.left.arrow.right"
+        case .injury: return "cross.case"
+        case .penalty: return "soccerball"
+        case .penaltyMissed: return "xmark"
+        case .freeKick: return "target"
+        case .corner: return "flag"
+        case .woodwork: return "rectangle.portrait"
+        case .varDecision: return "tv"
+        case .halfTime, .fullTime: return "flag.checkered"
+        case .extraTimeStart, .penaltyShootout: return "bolt"
+        case .commentary: return "text.bubble"
         }
     }
     
@@ -948,39 +948,7 @@ public enum LeagueCountry: String, Codable, CaseIterable, Identifiable, Hashable
     }
 
     public var flag: String {
-        switch self {
-        case .england: return "🏴󠁧󠁢󠁥󠁮󠁧󠁿"
-        case .spain: return "🇪🇸"
-        case .italy: return "🇮🇹"
-        case .germany: return "🇩🇪"
-        case .france: return "🇫🇷"
-        case .portugal: return "🇵🇹"
-        case .netherlands: return "🇳🇱"
-        case .turkey: return "🇹🇷"
-        case .scotland: return "🏴󠁧󠁢󠁳󠁣󠁴󠁿"
-        case .belgium: return "🇧🇪"
-        case .argentina: return "🇦🇷"
-        case .australia: return "🇦🇺"
-        case .austria: return "🇦🇹"
-        case .brazil: return "🇧🇷"
-        case .croatia: return "🇭🇷"
-        case .czechRepublic: return "🇨🇿"
-        case .denmark: return "🇩🇰"
-        case .greece: return "🇬🇷"
-        case .japan: return "🇯🇵"
-        case .southKorea: return "🇰🇷"
-        case .mexico: return "🇲🇽"
-        case .norway: return "🇳🇴"
-        case .poland: return "🇵🇱"
-        case .romania: return "🇷🇴"
-        case .russia: return "🇷🇺"
-        case .saudiArabia: return "🇸🇦"
-        case .serbia: return "🇷🇸"
-        case .sweden: return "🇸🇪"
-        case .switzerland: return "🇨🇭"
-        case .ukraine: return "🇺🇦"
-        case .unitedStates: return "🇺🇸"
-        }
+        return code
     }
 
     /// Display name of the division at the given level for this country.

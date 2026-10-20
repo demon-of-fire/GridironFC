@@ -191,9 +191,9 @@ extension GameState {
                     homeGoals: 2,
                     awayGoals: 1,
                     events: [
-                        MatchEvent(minute: 23, type: .goal, clubId: userClubId, shortText: "⚽ GOAL! J. Smith 23'", detailText: "Clinical finish into the bottom right.", isHomeTeam: true),
-                        MatchEvent(minute: 67, type: .goal, clubId: opponentClubId, shortText: "⚽ GOAL! P. Mullin 67'", detailText: "Header off a set piece.", isHomeTeam: false),
-                        MatchEvent(minute: 88, type: .goal, clubId: userClubId, shortText: "⚽ GOAL! T. Walker 88'", detailText: "Volley into top bin!", isHomeTeam: true)
+                        MatchEvent(minute: 23, type: .goal, clubId: userClubId, shortText: "GOAL! J. Smith 23'", detailText: "Clinical finish into the bottom right.", isHomeTeam: true),
+                        MatchEvent(minute: 67, type: .goal, clubId: opponentClubId, shortText: "GOAL! P. Mullin 67'", detailText: "Header off a set piece.", isHomeTeam: false),
+                        MatchEvent(minute: 88, type: .goal, clubId: userClubId, shortText: "GOAL! T. Walker 88'", detailText: "Volley into top bin!", isHomeTeam: true)
                     ],
                     matchWeek: 1,
                     competition: "League Two",

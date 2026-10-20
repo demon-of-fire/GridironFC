@@ -62,7 +62,7 @@ public struct Commentary {
             leadStatus = "putting \(club.shortName) ahead!"
         }
         
-        let shortText = "⚽ GOAL! \(scorer.displayName) (\(club.shortName)) \(minuteStr) [\(scoreStr)]"
+        let shortText = "GOAL! \(scorer.displayName) (\(club.shortName)) \(minuteStr) [\(scoreStr)]"
         
         let detailText: String
         let assistName = assister?.fullName ?? "a teammate"
@@ -132,7 +132,7 @@ public struct Commentary {
         minute: Int,
         isHome: Bool
     ) -> (short: String, detail: String) {
-        let shortText = "🎯 CHANCE! \(shooter.displayName) (\(club.shortName)) \(minute)'"
+        let shortText = "CHANCE! \(shooter.displayName) (\(club.shortName)) \(minute)'"
         
         let templates = [
             "\(shooter.fullName) carves out a yard of space just outside the box and lets fly with a ferocious drive that whistles inches over the crossbar!",
@@ -160,7 +160,7 @@ public struct Commentary {
         minute: Int,
         isHome: Bool
     ) -> (short: String, detail: String) {
-        let shortText = "🧤 SENSATIONAL SAVE! \(keeper.displayName) \(minute)'"
+        let shortText = "SENSATIONAL SAVE! \(keeper.displayName) \(minute)'"
         
         let templates = [
             "WHAT A REFLEX STOP! \(shooter.fullName) looked certain to score with a bullet header from point-blank range, but \(keeper.fullName) flung out a strong hand to tip it over the bar!",
@@ -185,7 +185,7 @@ public struct Commentary {
         isWoodwork: Bool = false
     ) -> (short: String, detail: String) {
         if isWoodwork {
-            let shortText = "🪵 OFF THE WOODWORK! \(shooter.displayName) \(minute)'"
+            let shortText = "OFF THE WOODWORK! \(shooter.displayName) \(minute)'"
             let woodworkTemplates = [
                 "OFF THE BAR! \(shooter.fullName) crashes a thunderbolt against the crossbar! The goalframe is still rattling as the defense scrambles the ball away.",
                 "OFF THE POST! Beautiful curling strike from \(shooter.fullName), beat the goalkeeper all ends up, but smacks against the inside of the far post and bounces clear!",
@@ -195,7 +195,7 @@ public struct Commentary {
             return (shortText, woodworkTemplates.randomElement()!)
         }
         
-        let shortText = "💨 CHANCE MISSED! \(shooter.displayName) \(minute)'"
+        let shortText = "CHANCE MISSED! \(shooter.displayName) \(minute)'"
         let missTemplates = [
             "HOW DID HE MISS THAT?! Sitter of the season! The ball was served on a silver platter inside the six-yard box, but \(shooter.fullName) somehow skewed his finish wide!",
             "A wasted opportunity for \(club.name). \(shooter.fullName) had time and space to pick his spot, but rushed his effort and blasted it high into the stands.",
@@ -220,7 +220,7 @@ public struct Commentary {
     ) -> (short: String, detail: String) {
         let minuteStr = "\(minute)'"
         if isRed || isSecondYellow {
-            let shortText = isSecondYellow ? "🟥 RED CARD (SECOND YELLOW)! \(player.displayName) \(minuteStr)" : "🟥 STRAIGHT RED CARD! \(player.displayName) \(minuteStr)"
+            let shortText = isSecondYellow ? "RED CARD (SECOND YELLOW)! \(player.displayName) \(minuteStr)" : "STRAIGHT RED CARD! \(player.displayName) \(minuteStr)"
             
             let redTemplates = [
                 "HE'S OFF! A reckless, two-footed lunge with studs showing leaves the referee with absolutely no choice. The referee reaches straight into his back pocket and produces a red card for \(player.fullName)! \(club.name) are down to 10 men!",
@@ -231,7 +231,7 @@ public struct Commentary {
             return (shortText, redTemplates.randomElement()!)
         }
         
-        let shortText = "🟡 YELLOW CARD — \(player.displayName) (\(club.shortName)) \(minuteStr)"
+        let shortText = "YELLOW CARD — \(player.displayName) (\(club.shortName)) \(minuteStr)"
         let yellowTemplates = [
             "Late challenge by \(player.fullName). He arrived a fraction of a second after the ball was released and wiped out his opponent. A deserved caution.",
             "Tactical foul. \(player.fullName) deliberately pulls back the attacker's shirt to break up a dangerous break. The referee reaches into his pocket without hesitation.",
@@ -251,7 +251,7 @@ public struct Commentary {
         minute: Int,
         injuryType: InjuryType
     ) -> (short: String, detail: String) {
-        let shortText = "🏥 INJURY — \(player.displayName) (\(club.shortName)) \(minute)'"
+        let shortText = "INJURY — \(player.displayName) (\(club.shortName)) \(minute)'"
         let detailText = "Play stops as \(player.fullName) goes down clutching his leg in obvious pain. The physios rush onto the pitch with the medical kit. After a brief assessment, he is signaled off the pitch with what looks like a \(injuryType.displayName.lowercased())."
         return (shortText, detailText)
     }
@@ -262,7 +262,7 @@ public struct Commentary {
         club: Club,
         minute: Int
     ) -> (short: String, detail: String) {
-        let shortText = "🔄 SUB — \(club.shortName): \(playerIn.displayName) ON, \(playerOut.displayName) OFF \(minute)'"
+        let shortText = "SUB — \(club.shortName): \(playerIn.displayName) ON, \(playerOut.displayName) OFF \(minute)'"
         let detailText = "Tactical change for \(club.name). \(playerOut.fullName) makes way after a tireless shift, receiving applause from the traveling supporters as \(playerIn.fullName) trots on with fresh instructions from the touchline."
         return (shortText, detailText)
     }
@@ -332,20 +332,20 @@ public struct Commentary {
         isLateWinner: Bool
     ) -> String {
         if isLateWinner {
-            return isHome ? "🔊 PANDEMONIUM! The ground is SHAKING as the home fans erupt in unbridled ecstasy!" : "🔊 Stunned silence in the home terraces as the away end goes completely ballistic!"
+            return isHome ? "PANDEMONIUM! The ground is SHAKING as the home fans erupt in unbridled ecstasy!" : "Stunned silence in the home terraces as the away end goes completely ballistic!"
         }
         if isHome {
             let reactions = [
-                "🔊 The home fans go wild! Scarves twirling, chants echoing around the arena!",
-                "🔊 An explosion of noise around \(club.stadium)! The atmosphere is electric!",
-                "🔊 The home terrace roars in celebration as players celebrate by the corner flag!"
+                "The home fans go wild! Scarves twirling, chants echoing around the arena!",
+                "An explosion of noise around \(club.stadium)! The atmosphere is electric!",
+                "The home terrace roars in celebration as players celebrate by the corner flag!"
             ]
             return reactions.randomElement()!
         } else {
             let reactions = [
-                "🔊 Wild celebrations in the away section! The traveling faithful are in dreamland!",
-                "🔊 Silence falls over the home end as the away fans make all the noise!",
-                "🔊 The away supporters are bouncing in unison, outsinging the entire stadium!"
+                "Wild celebrations in the away section! The traveling faithful are in dreamland!",
+                "Silence falls over the home end as the away fans make all the noise!",
+                "The away supporters are bouncing in unison, outsinging the entire stadium!"
             ]
             return reactions.randomElement()!
         }
@@ -359,7 +359,7 @@ public struct Commentary {
         homeGoals: Int,
         awayGoals: Int
     ) -> (short: String, detail: String) {
-        let shortText = "📋 Half-Time: \(home.shortName) \(homeGoals) - \(awayGoals) \(away.shortName)"
+        let shortText = "Half-Time: \(home.shortName) \(homeGoals) - \(awayGoals) \(away.shortName)"
         let detailText: String
         
         if homeGoals == awayGoals && homeGoals == 0 {
@@ -382,8 +382,8 @@ public struct Commentary {
         awayGoals: Int,
         motm: Player?
     ) -> (short: String, detail: String) {
-        let shortText = "📋 FULL-TIME: \(home.shortName) \(homeGoals) - \(awayGoals) \(away.shortName)"
-        let motmText = motm != nil ? "\n\n⭐ Man of the Match: \(motm!.fullName) (\(motm!.primaryPosition.abbreviation))" : ""
+        let shortText = "FULL-TIME: \(home.shortName) \(homeGoals) - \(awayGoals) \(away.shortName)"
+        let motmText = motm != nil ? "\n\nMan of the Match: \(motm!.fullName) (\(motm!.primaryPosition.abbreviation))" : ""
         let detailText: String
         
         if homeGoals == awayGoals {

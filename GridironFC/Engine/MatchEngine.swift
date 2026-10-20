@@ -382,7 +382,7 @@ public struct MatchEngine {
                     MatchEvent(
                         minute: 90,
                         type: .extraTimeStart,
-                        shortText: "⚡ EXTRA TIME! Scores tied at \(homeGoals)-\(awayGoals)",
+                        shortText: "EXTRA TIME! Scores tied at \(homeGoals)-\(awayGoals)",
                         detailText: "90 minutes could not separate these sides. We head into 30 minutes of extra time!",
                         isHomeTeam: true
                     )
@@ -1078,7 +1078,7 @@ public struct MatchEngine {
                 )
             )
         } else {
-            let shortText = "❌ PENALTY SAVED! \(taker.player.displayName) misses! \(minute)'"
+            let shortText = "PENALTY SAVED! \(taker.player.displayName) misses! \(minute)'"
             let detailText = "\(taker.player.fullName) struck it towards the bottom corner, but \(gk.player.fullName) guessed correctly and pulled off a stunning penalty save!"
             events.append(
                 MatchEvent(
@@ -1109,7 +1109,7 @@ public struct MatchEngine {
             MatchEvent(
                 minute: 120,
                 type: .penaltyShootout,
-                shortText: "⚡ PENALTY SHOOTOUT BEGINS!",
+                            shortText: "PENALTY SHOOTOUT BEGINS!",
                 detailText: "All square after 120 minutes! The tie will be decided from twelve yards.",
                 isHomeTeam: true
             )
@@ -1148,7 +1148,7 @@ public struct MatchEngine {
                 MatchEvent(
                     minute: 120,
                     type: .penaltyShootout,
-                    shortText: "🏆 \(homeClub.name) win on penalties (\(homeShootoutScore)-\(awayShootoutScore))!",
+                                shortText: "\(homeClub.name) win on penalties (\(homeShootoutScore)-\(awayShootoutScore))!",
                     detailText: "Jubilation for \(homeClub.name) as they prevail in the dramatic penalty shootout!",
                     isHomeTeam: true
                 )
@@ -1159,7 +1159,7 @@ public struct MatchEngine {
                 MatchEvent(
                     minute: 120,
                     type: .penaltyShootout,
-                    shortText: "🏆 \(awayClub.name) win on penalties (\(awayShootoutScore)-\(homeShootoutScore))!",
+                                shortText: "\(awayClub.name) win on penalties (\(awayShootoutScore)-\(homeShootoutScore))!",
                     detailText: "Heroics in the shootout! \(awayClub.name) triumph from the spot!",
                     isHomeTeam: false
                 )

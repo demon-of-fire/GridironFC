@@ -282,7 +282,8 @@ public struct LiveMatchView: View {
                 ForEach(visible.reversed()) { ev in
                     VStack(alignment: .leading, spacing: 3) {
                         HStack {
-                            Text(ev.type.icon)
+                            Image(systemName: ev.type.icon)
+                                .foregroundStyle(.secondary)
                             Text("\(ev.minute)'").fontWeight(.bold)
                             Text(ev.shortText)
                         }

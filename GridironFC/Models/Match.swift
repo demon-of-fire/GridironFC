@@ -112,7 +112,7 @@ public struct MatchEvent: Codable, Identifiable, Hashable {
     public var clubId: UUID?
     public var playerId: UUID?
     public var assistPlayerId: UUID?
-    public var shortText: String        // Single line commentary header (e.g., "⚽ GOAL! B. Fernandes 23'")
+    public var shortText: String        // Single line commentary header (e.g., "GOAL! B. Fernandes 23'")
     public var detailText: String       // Full expanded narrative description for commentary view
     public var isHomeTeam: Bool
     

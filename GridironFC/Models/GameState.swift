@@ -516,7 +516,8 @@ public final class GameState: Codable {
         return (goals(for: diff), goals(for: -diff))
     }
 
-
+    /// European-night scoreline approximation from two clubs' starting XIs.
+    static func simulateEuropeanScore(home: Club, away: Club) -> (Int, Int) {
         func strength(_ club: Club) -> Double {
             let xi = club.players.sorted { $0.overall > $1.overall }.prefix(11)
             guard !xi.isEmpty else { return 60 }
@@ -531,7 +532,7 @@ public final class GameState: Codable {
             let base = 1.25 + attackDiff
             let expected = max(0.15, base)
             var goals = 0
-            var probability = expected / (expected + 1.0)
+            let probability = expected / (expected + 1.0)
             for _ in 0..<6 {
                 if Double.random(in: 0...1, using: &rng) < probability * 0.85 { goals += 1 }
             }

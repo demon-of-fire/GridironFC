@@ -31,22 +31,22 @@ public enum ManagerNationality: String, Codable, CaseIterable, Identifiable, Has
 
     public var id: String { rawValue }
 
-    /// Short flag emoji for compact display.
+    /// Short country code for compact display.
     public var flag: String {
         switch self {
-        case .england: return "🏴󠁧󠁢󠁥󠁮󠁧󠁿"
-        case .scotland: return "🏴󠁧󠁢󠁳󠁣󠁴󠁿"
-        case .wales: return "🏴󠁧󠁢󠁷󠁬󠁳󠁿"
-        case .ireland: return "🇮🇪"
-        case .spain: return "🇪🇸"
-        case .italy: return "🇮🇹"
-        case .germany: return "🇩🇪"
-        case .france: return "🇫🇷"
-        case .portugal: return "🇵🇹"
-        case .netherlands: return "🇳🇱"
-        case .brazil: return "🇧🇷"
-        case .argentina: return "🇦🇷"
-        case .usa: return "🇺🇸"
+        case .england: return "ENG"
+        case .scotland: return "SCO"
+        case .wales: return "WAL"
+        case .ireland: return "IRL"
+        case .spain: return "ESP"
+        case .italy: return "ITA"
+        case .germany: return "GER"
+        case .france: return "FRA"
+        case .portugal: return "POR"
+        case .netherlands: return "NED"
+        case .brazil: return "BRA"
+        case .argentina: return "ARG"
+        case .usa: return "USA"
         }
     }
 }

@@ -1344,7 +1344,7 @@ public struct TacticsView: View {
     
     /// Applies a mutation to the user's club tactics and writes the club back
     /// into the world state.
-    private func updateTactics(_ mutate: (inout Club.Tactics) -> Void) {
+    private func updateTactics(_ mutate: (inout Tactics) -> Void) {
         guard let userClub = gameState.userClub else { return }
         var updated = userClub
         mutate(&updated.tactics)
