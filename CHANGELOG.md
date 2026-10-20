@@ -5,6 +5,47 @@ All notable changes to GridironFC are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-10-20
+
+### Added
+
+- **International management** — take charge of one of 85 national teams
+  assembled from real club players by nationality, each with confederation,
+  FIFA ranking and coach metadata. The **International** hub (overflow menu)
+  shows your nation, squad and the tournaments you are contesting.
+- **International tournaments** — the FIFA World Cup plus the EURO, Copa
+  América, Africa Cup of Nations and Asian Cup. Each is drawn into groups and
+  played out through a knockout bracket, simulated alongside your club season.
+- **Rich Latest News feed** — a dedicated **News** tab with category filters,
+  full stories and unread state. The Inbox (mail) now lives on the Home screen
+  with an unread badge.
+- **More formations and meaningful tactics** — ten additional formations, and
+  pressing, tempo, width and passing are now sliders that genuinely influence
+  possession, chance creation and defensive solidity in the match engine.
+- **Match playback settings** — choose replay speed (Slow → Very Fast) and
+  pause at half-time for substitutions.
+- **Assistant-manager auto-substitutions** — configurable timing (off,
+  half-time, second half, throughout) and rotation aggression.
+- **Squad edit mode** — tap a player to open their profile as normal, or switch
+  on Edit Squad to highlight and swap players for substitutions.
+
+### Changed
+
+- Transfer search is now **filter-then-search**: set your filters and tap
+  Search Market. Free agents are hidden unless the Include Free Agents filter
+  is switched on.
+- The **More options** menu now appears only on the Home screen.
+- Transfer and wage budgets are read as separate VoiceOver values and now
+  genuinely constrain signings.
+- Duplicate players are removed at load (cross-club, by name and age).
+- Only file-driven leagues appear; authored non-English lower tiers were
+  dropped while the English pyramid remains as a procedural fallback.
+
+### Removed
+
+- **All emojis** — event icons now use SF Symbols and flags render as
+  three-letter country codes.
+
 ## [Unreleased]
 
 ### Added
