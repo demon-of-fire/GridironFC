@@ -62,49 +62,57 @@ public final class DataLoader {
     public static func loadAllData() -> ([Club], [League]) {
         var allClubs: [Club] = []
         var allLeagues: [League] = []
-        
-        let fileNames: [(Int, [String], String, LeagueTier)] = [
-            (1, ["league_premier", "premier_league", "tier1"], "Premier League", LeagueTier.premierLeague),
-            (2, ["championship", "tier2"], "Championship", LeagueTier.championship),
-            (3, ["league_one", "tier3"], "League One", LeagueTier.leagueOne),
-            (4, ["league_two", "tier4"], "League Two", LeagueTier.leagueTwo),
-            (5, ["laliga", "spain", "tier5"], "La Liga", LeagueTier.laLiga),
-            (6, ["seriea", "italy", "tier6"], "Serie A", LeagueTier.serieA),
-            (7, ["bundesliga", "germany", "tier7"], "Bundesliga", LeagueTier.bundesliga),
-            (8, ["ligue1", "france", "tier8"], "Ligue 1", LeagueTier.ligue1)
-        ]
-        
-        for (_, resourceNames, leagueName, tier) in fileNames {
-            var loadedData: Data? = nil
-            for res in resourceNames {
-                if let bundleUrl = Bundle.main.url(forResource: res, withExtension: "json"),
-                   let data = try? Data(contentsOf: bundleUrl) {
-                    loadedData = data
-                    break
-                }
-            }
-            if let data = loadedData,
-               let rawLeague = try? JSONDecoder().decode(RawLeagueData.self, from: data) {
-                
+
+        for tier in LeagueTier.allCases {
+            let raw = loadRawLeague(for: tier)
+            if let rawLeague = raw {
                 var leagueClubIds: [UUID] = []
                 for rawClub in rawLeague.clubs {
                     let club = buildClub(from: rawClub, tier: tier)
                     allClubs.append(club)
                     leagueClubIds.append(club.id)
                 }
-                
                 let league = League(name: rawLeague.name, tier: tier, clubIds: leagueClubIds)
                 allLeagues.append(league)
-            } else if tier.isEnglishPyramid {
-                // Fallback to built-in programmatic catalog for the English pyramid.
-                let (clubsForTier, league) = buildFallbackTier(tier: tier, name: leagueName)
+            } else if tier.country == .england {
+                // Fallback to the built-in programmatic catalog for the English pyramid.
+                let (clubsForTier, league) = buildFallbackTier(tier: tier, name: tier.displayName)
                 allClubs.append(contentsOf: clubsForTier)
                 allLeagues.append(league)
             }
-            // Continental leagues require their JSON; if missing they are omitted.
+            // Non-English leagues require their JSON; if missing they are omitted.
         }
-        
+
         return (allClubs, allLeagues)
+    }
+
+    /// Candidate bundle resource names for a tier, in priority order.
+    /// Canonical name is `tier<rawValue>`; historical short names are kept as aliases.
+    private static func resourceNames(for tier: LeagueTier) -> [String] {
+        var names: [String] = ["tier\(tier.rawValue)"]
+        switch tier {
+        case .eng1: names += ["tier1", "league_premier", "premier_league"]
+        case .eng2: names += ["tier2", "championship"]
+        case .eng3: names += ["tier3", "league_one"]
+        case .eng4: names += ["tier4", "league_two"]
+        case .esp1: names += ["tier5", "laliga", "spain"]
+        case .ita1: names += ["tier6", "seriea", "italy"]
+        case .ger1: names += ["tier7", "bundesliga", "germany"]
+        case .fra1: names += ["tier8", "ligue1", "france"]
+        default: break
+        }
+        return names
+    }
+
+    private static func loadRawLeague(for tier: LeagueTier) -> RawLeagueData? {
+        for res in resourceNames(for: tier) {
+            if let bundleUrl = Bundle.main.url(forResource: res, withExtension: "json"),
+               let data = try? Data(contentsOf: bundleUrl),
+               let rawLeague = try? JSONDecoder().decode(RawLeagueData.self, from: data) {
+                return rawLeague
+            }
+        }
+        return nil
     }
     
     // MARK: - Raw Club Conversion
@@ -173,7 +181,7 @@ public final class DataLoader {
         )
         
         let contractYears = raw.contractYears ?? Int.random(in: 2...4)
-        let weeklyWage = raw.wage ?? max(400, raw.overall * 40 * tier.rawValue)
+        let weeklyWage = raw.wage ?? max(400, raw.overall * 40 * tier.level)
         let contract = Contract(wage: weeklyWage, yearsRemaining: contractYears, signingDate: "2024-07")
         
         return Player(
@@ -455,12 +463,11 @@ public final class DataLoader {
         ]
         
         let baseRating: Int
-        switch tier {
-        case .premierLeague: baseRating = 78
-        case .championship: baseRating = 68
-        case .leagueOne: baseRating = 60
-        case .leagueTwo: baseRating = 52
-        case .laLiga, .serieA, .bundesliga, .ligue1: baseRating = 76
+        switch tier.level {
+        case 1: baseRating = tier.country == .england ? 78 : 76
+        case 2: baseRating = 67
+        case 3: baseRating = 59
+        default: baseRating = 51
         }
         
         var squad: [Player] = []
@@ -505,7 +512,7 @@ public final class DataLoader {
         let clubData: [(name: String, short: String, stadium: String, cap: Int, city: String, c1: String, c2: String, rep: Int)]
         
         switch tier {
-        case .premierLeague:
+        case .eng1:
             clubData = [
                 ("Arsenal", "ARS", "Emirates Stadium", 60704, "London", "#EF0107", "#FFFFFF", 90),
                 ("Aston Villa", "AVL", "Villa Park", 42682, "Birmingham", "#670E36", "#95BFE5", 82),
@@ -529,7 +536,7 @@ public final class DataLoader {
                 ("Southampton", "SOU", "St Mary's Stadium", 32384, "Southampton", "#D71920", "#FFFFFF", 76)
             ]
             
-        case .championship:
+        case .eng2:
             clubData = [
                 ("Leeds United", "LEE", "Elland Road", 37890, "Leeds", "#FFCD00", "#1D428A", 77),
                 ("Burnley", "BUR", "Turf Moor", 21944, "Burnley", "#6C1D45", "#99D6EA", 76),
@@ -557,7 +564,7 @@ public final class DataLoader {
                 ("Cardiff City", "CAR", "Cardiff City Stadium", 33280, "Cardiff", "#0047AB", "#FFFFFF", 71)
             ]
             
-        case .leagueOne:
+        case .eng3:
             clubData = [
                 ("Birmingham City", "BIR", "St Andrew's", 29409, "Birmingham", "#0000FF", "#FFFFFF", 72),
                 ("Huddersfield Town", "HUD", "John Smith's Stadium", 24121, "Huddersfield", "#0072CE", "#FFFFFF", 70),
@@ -585,7 +592,7 @@ public final class DataLoader {
                 ("Crawley Town", "CRA", "Broadfield Stadium", 6134, "Crawley", "#EE2737", "#FFFFFF", 63)
             ]
             
-        case .leagueTwo:
+        case .eng4:
             clubData = [
                 ("Doncaster Rovers", "DON", "Eco-Power Stadium", 15231, "Doncaster", "#EE2737", "#FFFFFF", 63),
                 ("Bradford City", "BRA", "Valley Parade", 25136, "Bradford", "#800000", "#FFBF00", 64),
@@ -612,8 +619,8 @@ public final class DataLoader {
                 ("Cheltenham Town", "CHL", "Whaddon Road", 7066, "Cheltenham", "#EE2737", "#FFFFFF", 60),
                 ("Morecambe", "MOR", "Mazuma Stadium", 6476, "Morecambe", "#EE2737", "#000000", 59)
             ]
-        case .laLiga, .serieA, .bundesliga, .ligue1:
-            // Continental leagues are authored in JSON; the procedural fallback is empty.
+        default:
+            // Non-English leagues are authored in JSON; the procedural fallback is empty.
             clubData = []
         }
         

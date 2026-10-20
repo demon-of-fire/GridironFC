@@ -847,25 +847,11 @@ public final class GameState: Codable {
         
         // Map each promoted club to the destination tier and each relegated club downward.
         func destinationTierForPromotion(from tier: LeagueTier) -> LeagueTier? {
-            switch tier {
-            case .premierLeague: return nil
-            case .championship: return .premierLeague
-            case .leagueOne: return .championship
-            case .leagueTwo: return .leagueOne
-            // Standalone continental leagues have no upward promotion target.
-            case .laLiga, .serieA, .bundesliga, .ligue1: return nil
-            }
+            return tier.higherTier
         }
         
         func destinationTierForRelegation(from tier: LeagueTier) -> LeagueTier? {
-            switch tier {
-            case .premierLeague: return .championship
-            case .championship: return .leagueOne
-            case .leagueOne: return .leagueTwo
-            case .leagueTwo: return nil // Bottom tier: no relegation out of the playable world.
-            // No modelled division below these; keep clubs in place.
-            case .laLiga, .serieA, .bundesliga, .ligue1: return nil
-            }
+            return tier.lowerTier
         }
         
         // Apply promotions.
@@ -1140,13 +1126,11 @@ public final class GameState: Codable {
 
         // Reputation drifts toward a target based on league strength and finish.
         let tierBonus: Int
-        switch club.leagueTier {
-        case .premierLeague: tierBonus = 25
-        case .championship: tierBonus = 15
-        case .leagueOne: tierBonus = 8
-        case .leagueTwo: tierBonus = 3
-        case .laLiga, .serieA: tierBonus = 22
-        case .bundesliga, .ligue1: tierBonus = 18
+        switch club.leagueTier.level {
+        case 1: tierBonus = club.leagueTier.country == .england ? 25 : 20
+        case 2: tierBonus = 15
+        case 3: tierBonus = 8
+        default: tierBonus = 3
         }
         let positionPenalty = min(20, max(0, position - 1) * 2)
         let target = min(100, max(5, club.reputation / 2 + tierBonus - positionPenalty))

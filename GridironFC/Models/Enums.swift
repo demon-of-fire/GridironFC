@@ -515,18 +515,41 @@ public enum StaffRole: String, Codable, CaseIterable, Identifiable, Hashable {
 
 // MARK: - League Tier
 
-/// A competition the user can manage in. The four English divisions form a
-/// promotion/relegation pyramid; the continental top flights are standalone
-/// leagues (no cross-league promotion) but participate in European competition.
+/// A national division the user can manage in. Every country is modelled as a
+/// four-level pyramid (levels 1–4); level 1 of each country feeds European
+/// competition. `rawValue` is `countryIndex * 10 + level` so tiers sort by
+/// country and then by division strength.
 public enum LeagueTier: Int, Codable, CaseIterable, Identifiable, Comparable, Hashable {
-    case premierLeague = 1
-    case championship = 2
-    case leagueOne = 3
-    case leagueTwo = 4
-    case laLiga = 5
-    case serieA = 6
-    case bundesliga = 7
-    case ligue1 = 8
+    // England
+    case eng1 = 11, eng2 = 12, eng3 = 13, eng4 = 14
+    // Spain
+    case esp1 = 21, esp2 = 22, esp3 = 23, esp4 = 24
+    // Italy
+    case ita1 = 31, ita2 = 32, ita3 = 33, ita4 = 34
+    // Germany
+    case ger1 = 41, ger2 = 42, ger3 = 43, ger4 = 44
+    // France
+    case fra1 = 51, fra2 = 52, fra3 = 53, fra4 = 54
+    // Portugal
+    case por1 = 61, por2 = 62, por3 = 63, por4 = 64
+    // Netherlands
+    case ned1 = 71, ned2 = 72, ned3 = 73, ned4 = 74
+    // Turkey
+    case tur1 = 81, tur2 = 82, tur3 = 83, tur4 = 84
+    // Scotland
+    case sco1 = 91, sco2 = 92, sco3 = 93, sco4 = 94
+    // Belgium
+    case bel1 = 101, bel2 = 102, bel3 = 103, bel4 = 104
+
+    // MARK: Back-compat aliases
+    public static let premierLeague = LeagueTier.eng1
+    public static let championship = LeagueTier.eng2
+    public static let leagueOne = LeagueTier.eng3
+    public static let leagueTwo = LeagueTier.eng4
+    public static let laLiga = LeagueTier.esp1
+    public static let serieA = LeagueTier.ita1
+    public static let bundesliga = LeagueTier.ger1
+    public static let ligue1 = LeagueTier.fra1
 
     public var id: Int { rawValue }
 
@@ -534,91 +557,72 @@ public enum LeagueTier: Int, Codable, CaseIterable, Identifiable, Comparable, Ha
         return lhs.rawValue < rhs.rawValue
     }
 
-    public var displayName: String {
-        switch self {
-        case .premierLeague: return "Premier League"
-        case .championship: return "Championship"
-        case .leagueOne: return "League One"
-        case .leagueTwo: return "League Two"
-        case .laLiga: return "La Liga"
-        case .serieA: return "Serie A"
-        case .bundesliga: return "Bundesliga"
-        case .ligue1: return "Ligue 1"
-        }
-    }
-
-    /// Country grouping. Used to keep promotion/relegation and European
-    /// qualification within the correct national structure.
+    /// The country this division belongs to.
     public var country: LeagueCountry {
-        switch self {
-        case .premierLeague, .championship, .leagueOne, .leagueTwo: return .england
-        case .laLiga: return .spain
-        case .serieA: return .italy
-        case .bundesliga: return .germany
-        case .ligue1: return .france
-        }
+        LeagueCountry.allCases.first { self.rawValue / 10 == $0.index } ?? .england
     }
 
-    /// True for divisions that sit within the English promotion pyramid.
-    public var isEnglishPyramid: Bool {
-        country == .england
+    /// The division level within the country (1 = top flight).
+    public var level: Int {
+        return rawValue % 10
     }
 
-    /// True for standalone continental top flights.
-    public var isContinentalTopFlight: Bool {
-        switch self {
-        case .laLiga, .serieA, .bundesliga, .ligue1: return true
-        default: return false
-        }
+    /// The tier one level above within the same country, if any.
+    public var higherTier: LeagueTier? {
+        guard level > 1 else { return nil }
+        return LeagueTier(rawValue: rawValue - 1)
+    }
+
+    /// The tier one level below within the same country, if any.
+    public var lowerTier: LeagueTier? {
+        guard level < 4 else { return nil }
+        return LeagueTier(rawValue: rawValue + 1)
+    }
+
+    public var isTopFlight: Bool { level == 1 }
+
+    public var displayName: String {
+        return country.divisionName(level: level)
+    }
+
+    /// Short label used for compact UI, e.g. "ENG 2".
+    public var shortLabel: String {
+        return "\(country.code) \(level)"
+    }
+
+    /// The four divisions of a given country, top flight first.
+    public static func pyramid(for country: LeagueCountry) -> [LeagueTier] {
+        let base = country.index * 10
+        return (1...4).compactMap { LeagueTier(rawValue: base + $0) }
     }
 
     public var clubCount: Int {
-        switch self {
-        case .premierLeague: return 20
-        case .championship, .leagueOne, .leagueTwo: return 24
-        case .laLiga: return 20
-        case .serieA: return 20
-        case .bundesliga: return 18
-        case .ligue1: return 18
-        }
+        return country.clubCount(level: level)
     }
 
     public var autoPromotionCount: Int {
-        switch self {
-        case .premierLeague: return 0
-        case .championship, .leagueOne: return 2
-        case .leagueTwo: return 3
-        // Continental leagues are standalone: no automatic promotion.
-        case .laLiga, .serieA, .bundesliga, .ligue1: return 0
-        }
+        guard level < 4 else { return level == 4 ? 3 : 0 }
+        return level == 1 ? 0 : 2
     }
 
     public var playoffPromotionCount: Int {
-        switch self {
-        case .premierLeague: return 0
-        case .championship, .leagueOne, .leagueTwo: return 1
-        case .laLiga, .serieA, .bundesliga, .ligue1: return 0
-        }
+        guard level > 1 else { return 0 }
+        return 1
     }
 
     public var relegationCount: Int {
-        switch self {
-        case .premierLeague: return 3
-        case .championship: return 3
-        case .leagueOne: return 4
-        case .leagueTwo: return 2
-        // These would relegate into a division we don't model; keep bottom clubs in place.
-        case .laLiga, .serieA, .bundesliga, .ligue1: return 0
+        switch level {
+        case 1: return country.topFlightRelegationCount
+        case 2: return 3
+        case 3: return 4
+        default: return 2
         }
     }
 
-    /// The number of European qualification slots this league grants (top-flight only).
+    /// Number of European qualification slots this division grants (top flight only).
     public var europeanSlots: Int {
-        switch self {
-        case .premierLeague: return 5
-        case .laLiga, .serieA, .bundesliga, .ligue1: return 4
-        default: return 0
-        }
+        guard isTopFlight else { return 0 }
+        return country.europeanSlots
     }
 }
 
@@ -630,8 +634,18 @@ public enum LeagueCountry: String, Codable, CaseIterable, Identifiable, Hashable
     case italy
     case germany
     case france
+    case portugal
+    case netherlands
+    case turkey
+    case scotland
+    case belgium
 
     public var id: String { rawValue }
+
+    /// Stable index used to derive `LeagueTier.rawValue`.
+    public var index: Int {
+        return (LeagueCountry.allCases.firstIndex(of: self) ?? 0) + 1
+    }
 
     public var displayName: String {
         switch self {
@@ -640,6 +654,27 @@ public enum LeagueCountry: String, Codable, CaseIterable, Identifiable, Hashable
         case .italy: return "Italy"
         case .germany: return "Germany"
         case .france: return "France"
+        case .portugal: return "Portugal"
+        case .netherlands: return "Netherlands"
+        case .turkey: return "Turkey"
+        case .scotland: return "Scotland"
+        case .belgium: return "Belgium"
+        }
+    }
+
+    /// Three-letter code used in compact labels.
+    public var code: String {
+        switch self {
+        case .england: return "ENG"
+        case .spain: return "ESP"
+        case .italy: return "ITA"
+        case .germany: return "GER"
+        case .france: return "FRA"
+        case .portugal: return "POR"
+        case .netherlands: return "NED"
+        case .turkey: return "TUR"
+        case .scotland: return "SCO"
+        case .belgium: return "BEL"
         }
     }
 
@@ -650,6 +685,120 @@ public enum LeagueCountry: String, Codable, CaseIterable, Identifiable, Hashable
         case .italy: return "🇮🇹"
         case .germany: return "🇩🇪"
         case .france: return "🇫🇷"
+        case .portugal: return "🇵🇹"
+        case .netherlands: return "🇳🇱"
+        case .turkey: return "🇹🇷"
+        case .scotland: return "🏴󠁧󠁢󠁳󠁣󠁴󠁿"
+        case .belgium: return "🇧🇪"
+        }
+    }
+
+    /// Display name of the division at the given level for this country.
+    public func divisionName(level: Int) -> String {
+        switch (self, level) {
+        case (.england, 1): return "Premier League"
+        case (.england, 2): return "Championship"
+        case (.england, 3): return "League One"
+        case (.england, 4): return "League Two"
+        case (.spain, 1): return "La Liga"
+        case (.spain, 2): return "LaLiga 2"
+        case (.spain, 3): return "Primera Federación"
+        case (.spain, 4): return "Segunda Federación"
+        case (.italy, 1): return "Serie A"
+        case (.italy, 2): return "Serie B"
+        case (.italy, 3): return "Serie C"
+        case (.italy, 4): return "Serie D"
+        case (.germany, 1): return "Bundesliga"
+        case (.germany, 2): return "2. Bundesliga"
+        case (.germany, 3): return "3. Liga"
+        case (.germany, 4): return "Regionalliga"
+        case (.france, 1): return "Ligue 1"
+        case (.france, 2): return "Ligue 2"
+        case (.france, 3): return "National"
+        case (.france, 4): return "National 2"
+        case (.portugal, 1): return "Primeira Liga"
+        case (.portugal, 2): return "Liga Portugal 2"
+        case (.portugal, 3): return "Liga 3"
+        case (.portugal, 4): return "Campeonato de Portugal"
+        case (.netherlands, 1): return "Eredivisie"
+        case (.netherlands, 2): return "Eerste Divisie"
+        case (.netherlands, 3): return "Tweede Divisie"
+        case (.netherlands, 4): return "Derde Divisie"
+        case (.turkey, 1): return "Süper Lig"
+        case (.turkey, 2): return "1. Lig"
+        case (.turkey, 3): return "2. Lig"
+        case (.turkey, 4): return "3. Lig"
+        case (.scotland, 1): return "Scottish Premiership"
+        case (.scotland, 2): return "Scottish Championship"
+        case (.scotland, 3): return "Scottish League One"
+        case (.scotland, 4): return "Scottish League Two"
+        case (.belgium, 1): return "Belgian Pro League"
+        case (.belgium, 2): return "Challenger Pro League"
+        case (.belgium, 3): return "Eerste Nationale"
+        case (.belgium, 4): return "Tweede Nationale"
+        default: return "\(displayName) Tier \(level)"
+        }
+    }
+
+    /// Number of clubs in a division at the given level.
+    public func clubCount(level: Int) -> Int {
+        switch (self, level) {
+        case (.england, 1): return 20
+        case (.england, 2), (.england, 3), (.england, 4): return 24
+        case (.spain, 1): return 20
+        case (.spain, 2): return 22
+        case (.spain, 3): return 20
+        case (.spain, 4): return 20
+        case (.italy, 1): return 20
+        case (.italy, 2): return 20
+        case (.italy, 3): return 20
+        case (.italy, 4): return 20
+        case (.germany, 1): return 18
+        case (.germany, 2): return 18
+        case (.germany, 3): return 20
+        case (.germany, 4): return 20
+        case (.france, 1), (.france, 2): return 18
+        case (.france, 3): return 18
+        case (.france, 4): return 18
+        case (.portugal, 1): return 18
+        case (.portugal, 2): return 18
+        case (.portugal, 3): return 20
+        case (.portugal, 4): return 20
+        case (.netherlands, 1): return 18
+        case (.netherlands, 2): return 20
+        case (.netherlands, 3): return 18
+        case (.netherlands, 4): return 18
+        case (.turkey, 1): return 18
+        case (.turkey, 2): return 18
+        case (.turkey, 3): return 18
+        case (.turkey, 4): return 18
+        case (.scotland, 1): return 12
+        case (.scotland, 2): return 10
+        case (.scotland, 3): return 10
+        case (.scotland, 4): return 10
+        case (.belgium, 1): return 16
+        case (.belgium, 2): return 16
+        case (.belgium, 3): return 18
+        case (.belgium, 4): return 18
+        default: return 18
+        }
+    }
+
+    /// Number of clubs relegated straight out of the top flight each season.
+    public var topFlightRelegationCount: Int {
+        switch self {
+        case .england, .spain, .italy, .germany, .france: return 3
+        case .portugal, .netherlands, .turkey, .scotland, .belgium: return 2
+        }
+    }
+
+    /// European qualification slots granted by this country's top flight.
+    public var europeanSlots: Int {
+        switch self {
+        case .england, .spain, .italy, .germany: return 4
+        case .france, .portugal, .netherlands: return 3
+        case .turkey, .belgium: return 2
+        case .scotland: return 1
         }
     }
 }

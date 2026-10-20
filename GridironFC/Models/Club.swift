@@ -336,63 +336,36 @@ public struct ClubFinances: Codable, Hashable {
     }
     
     public static func defaultFor(tier: LeagueTier) -> ClubFinances {
-        switch tier {
-        case .premierLeague:
-            return ClubFinances(
-                transferBudget: 45_000_000,
-                wageBudget: 1_800_000,
-                currentWageBill: 1_500_000,
-                balance: 75_000_000,
-                tvIncome: 110_000_000,
-                matchdayIncome: 1_400_000,
-                sponsorshipIncome: 40_000_000,
-                merchandiseIncome: 18_000_000
-            )
-        case .championship:
-            return ClubFinances(
-                transferBudget: 8_000_000,
-                wageBudget: 350_000,
-                currentWageBill: 300_000,
-                balance: 14_000_000,
-                tvIncome: 10_000_000,
-                matchdayIncome: 350_000,
-                sponsorshipIncome: 6_000_000,
-                merchandiseIncome: 2_500_000
-            )
-        case .leagueOne:
-            return ClubFinances(
-                transferBudget: 2_000_000,
-                wageBudget: 95_000,
-                currentWageBill: 80_000,
-                balance: 3_500_000,
-                tvIncome: 2_200_000,
-                matchdayIncome: 120_000,
-                sponsorshipIncome: 1_400_000,
-                merchandiseIncome: 600_000
-            )
-        case .leagueTwo:
-            return ClubFinances(
-                transferBudget: 500_000,
-                wageBudget: 40_000,
-                currentWageBill: 35_000,
-                balance: 1_200_000,
-                tvIncome: 900_000,
-                matchdayIncome: 55_000,
-                sponsorshipIncome: 450_000,
-                merchandiseIncome: 180_000
-            )
-        case .laLiga, .serieA, .bundesliga, .ligue1:
-            return ClubFinances(
-                transferBudget: 35_000_000,
-                wageBudget: 1_300_000,
-                currentWageBill: 1_100_000,
-                balance: 55_000_000,
-                tvIncome: 80_000_000,
-                matchdayIncome: 1_000_000,
-                sponsorshipIncome: 30_000_000,
-                merchandiseIncome: 12_000_000
-            )
-        }
+        // Country strength scales top-flight money; level scales down the pyramid.
+        let countryFactor: Double = {
+            switch tier.country {
+            case .england, .spain, .italy, .germany: return 1.0
+            case .france: return 0.75
+            case .portugal, .netherlands, .turkey, .scotland, .belgium: return 0.5
+            }
+        }()
+        let levelScale: Double = {
+            switch tier.level {
+            case 1: return 1.0
+            case 2: return 0.18
+            case 3: return 0.05
+            default: return 0.018
+            }
+        }()
+        let scale = countryFactor * levelScale
+
+        func scaled(_ base: Int) -> Int { Int(Double(base) * scale) }
+
+        return ClubFinances(
+            transferBudget: scaled(45_000_000),
+            wageBudget: max(8_000, scaled(1_800_000)),
+            currentWageBill: max(6_000, scaled(1_500_000)),
+            balance: scaled(75_000_000),
+            tvIncome: scaled(110_000_000),
+            matchdayIncome: max(15_000, scaled(1_400_000)),
+            sponsorshipIncome: scaled(40_000_000),
+            merchandiseIncome: scaled(18_000_000)
+        )
     }
 }
 
@@ -423,22 +396,11 @@ public struct StaffMember: Codable, Identifiable, Hashable {
         let baseQuality: Int
         let baseWage: Int
         
-        switch tier {
-        case .premierLeague:
-            baseQuality = 4
-            baseWage = 8_000
-        case .championship:
-            baseQuality = 3
-            baseWage = 3_000
-        case .leagueOne:
-            baseQuality = 2
-            baseWage = 1_200
-        case .leagueTwo:
-            baseQuality = 2
-            baseWage = 600
-        case .laLiga, .serieA, .bundesliga, .ligue1:
-            baseQuality = 4
-            baseWage = 7_000
+        switch tier.level {
+        case 1: baseQuality = 4; baseWage = 7_000
+        case 2: baseQuality = 3; baseWage = 3_000
+        case 3: baseQuality = 2; baseWage = 1_200
+        default: baseQuality = 2; baseWage = 600
         }
         
         return [

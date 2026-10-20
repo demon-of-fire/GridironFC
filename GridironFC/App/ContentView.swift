@@ -449,13 +449,23 @@ public struct ClubSelectView: View {
     public var body: some View {
         List {
             Section {
-                Picker("Division", selection: $selectedTier) {
-                    Text("All Divisions").tag(nil as LeagueTier?)
-                    ForEach(LeagueTier.allCases) { tier in
-                        Text(tier.displayName).tag(tier as LeagueTier?)
+                Menu {
+                    Button("All Divisions") { selectedTier = nil }
+                    ForEach(LeagueCountry.allCases) { country in
+                        Menu("\(country.flag) \(country.displayName)") {
+                            ForEach(LeagueTier.pyramid(for: country)) { tier in
+                                Button(tier.displayName) { selectedTier = tier }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack {
+                        Text("Division")
+                        Spacer()
+                        Text(selectedTier?.displayName ?? "All Divisions")
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .pickerStyle(.menu)
                 .accessibilityLabel("Filter by division")
             }
             
