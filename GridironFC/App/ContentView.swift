@@ -2089,7 +2089,7 @@ public struct TrainingView: View {
                 Section("This Week's Session") {
                     HStack {
                         Label(isAvailable ? "Session available" : "Session complete", systemImage: isAvailable ? "checkmark.circle.fill" : "lock.fill")
-                            .foregroundStyle(isAvailable ? .winGreen : .secondary)
+                            .foregroundStyle(isAvailable ? Color.winGreen : Color.secondary)
                         Spacer()
                         Text("Week \(gameState.season.currentWeek)")
                             .font(.caption)
