@@ -345,8 +345,10 @@ public final class GameState: Codable {
     /// performs weekly upkeep (fitness, finances, AI transfers), advances the
     /// calendar, and checks for season completion. Shared by `advanceWeek()` and
     /// the post-user-match flow so the rest of the league always keeps pace.
+    /// Each completed matchday is auto-saved, overwriting the previous autosave.
     public func finishMatchweekAfterUserMatch() {
         advanceWeek()
+        try? SaveManager.shared.autoSave(gameState: self)
     }
 
     /// Advances the in-game week: simulates all pending matchweek matches, recovers fitness,
@@ -365,9 +367,19 @@ public final class GameState: Codable {
             for playerIdx in 0..<clubs[clubIdx].players.count {
                 clubs[clubIdx].players[playerIdx].advanceWeekRecovery()
             }
-            // Weekly financial accounting
-            let isHomeMatch = season.fixtures(forWeek: season.currentWeek).contains { $0.homeClubId == clubs[clubIdx].id }
-            clubs[clubIdx].finances.processWeeklyCashFlow(isHomeMatchThisWeek: isHomeMatch)
+            // Weekly financial accounting. Home clubs bank gate receipts scaled
+            // by the calibre of the visiting side.
+            let homeFixture = season.fixtures(forWeek: season.currentWeek)
+                .first { $0.homeClubId == clubs[clubIdx].id }
+            var gate = 0
+            if let homeFixture,
+               let away = club(withId: homeFixture.awayClubId) {
+                gate = clubs[clubIdx].finances.matchdayRevenue(opponentReputation: away.reputation)
+            }
+            clubs[clubIdx].finances.processWeeklyCashFlow(
+                isHomeMatchThisWeek: homeFixture != nil,
+                gateReceipts: gate
+            )
         }
         
         // 3. AI manager autonomous dealings and transfer negotiation resolution

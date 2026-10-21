@@ -213,6 +213,79 @@ public struct Club: Codable, Identifiable, Hashable {
         return academyProspects.remove(at: idx)
     }
 
+    // MARK: - Staff & Facilities Management
+
+    /// Best scout on the books, if any.
+    public var bestScout: StaffMember? {
+        staff.filter { $0.role == .scout }.max { $0.quality < $1.quality }
+    }
+
+    /// Cost to hire a scout of the given quality (1-5 stars).
+    public static func scoutHiringFee(quality: Int) -> Int {
+        return 250_000 + max(0, quality - 1) * 350_000
+    }
+
+    /// Cost to upgrade the youth academy one level.
+    public var academyUpgradeCost: Int {
+        return 1_500_000 * youthAcademyLevel
+    }
+
+    /// Cost to upgrade the training ground one level.
+    public var trainingUpgradeCost: Int {
+        return 2_000_000 * trainingFacilityLevel
+    }
+
+    /// Hires a new scout, paying from the treasury. Returns the new staff member
+    /// (or nil if the club cannot afford it).
+    @discardableResult
+    public mutating func hireScout(quality: Int) -> StaffMember? {
+        let fee = Club.scoutHiringFee(quality: quality)
+        guard finances.transferBudget >= fee else { return nil }
+        finances.transferBudget -= fee
+        let scout = StaffMember(
+            name: Club.randomScoutName(),
+            role: .scout,
+            quality: max(1, min(5, quality)),
+            wage: 1_500 + quality * 900
+        )
+        staff.append(scout)
+        finances.currentWageBill = totalWeeklyWageBill
+        return scout
+    }
+
+    /// Releases a member of staff, returning whether they were found.
+    @discardableResult
+    public mutating func releaseStaff(withId id: UUID) -> Bool {
+        guard let idx = staff.firstIndex(where: { $0.id == id }) else { return false }
+        staff.remove(at: idx)
+        finances.currentWageBill = totalWeeklyWageBill
+        return true
+    }
+
+    /// Upgrades the youth academy a level if affordable.
+    @discardableResult
+    public mutating func upgradeYouthAcademy() -> Bool {
+        guard youthAcademyLevel < 5, finances.transferBudget >= academyUpgradeCost else { return false }
+        finances.transferBudget -= academyUpgradeCost
+        youthAcademyLevel += 1
+        return true
+    }
+
+    /// Upgrades the training ground a level if affordable.
+    @discardableResult
+    public mutating func upgradeTrainingGround() -> Bool {
+        guard trainingFacilityLevel < 5, finances.transferBudget >= trainingUpgradeCost else { return false }
+        finances.transferBudget -= trainingUpgradeCost
+        trainingFacilityLevel += 1
+        return true
+    }
+
+    private static func randomScoutName() -> String {
+        let first = ["Alan", "Brian", "Colin", "Derek", "Graham", "Ian", "Keith", "Malcolm", "Nigel", "Roy"]
+        let last = ["Carr", "Doyle", "Ellis", "Hughes", "Kerr", "Lynch", "Nolan", "Pearce", "Quinn", "Ward"]
+        return "\(first.randomElement() ?? "Alan") \(last.randomElement() ?? "Carr")"
+    }
+
     @discardableResult
     public mutating func removePlayer(withId id: UUID) -> Player? {
         guard let idx = players.firstIndex(where: { $0.id == id }) else { return nil }
@@ -353,7 +426,15 @@ public struct ClubFinances: Codable, Hashable {
     public var matchdayIncome: Int       // Estimated average gate receipts per home match
     public var sponsorshipIncome: Int    // Annualized sponsorship agreements
     public var merchandiseIncome: Int    // Annualized merchandise sales
-    
+
+    // MARK: Ticket / gate detail
+    /// Average ticket price in pounds (scales with club stature).
+    public var averageTicketPrice: Int
+    /// Typical home attendance as a fraction of capacity (0.4-1.0).
+    public var averageAttendancePct: Double
+    /// Stadium capacity used to model gate receipts.
+    public var stadiumCapacity: Int
+
     public init(
         transferBudget: Int,
         wageBudget: Int,
@@ -362,7 +443,10 @@ public struct ClubFinances: Codable, Hashable {
         tvIncome: Int,
         matchdayIncome: Int,
         sponsorshipIncome: Int,
-        merchandiseIncome: Int
+        merchandiseIncome: Int,
+        averageTicketPrice: Int = 30,
+        averageAttendancePct: Double = 0.8,
+        stadiumCapacity: Int = 20_000
     ) {
         self.transferBudget = transferBudget
         self.wageBudget = wageBudget
@@ -372,33 +456,80 @@ public struct ClubFinances: Codable, Hashable {
         self.matchdayIncome = matchdayIncome
         self.sponsorshipIncome = sponsorshipIncome
         self.merchandiseIncome = merchandiseIncome
+        self.averageTicketPrice = averageTicketPrice
+        self.averageAttendancePct = averageAttendancePct
+        self.stadiumCapacity = stadiumCapacity
     }
-    
+
     public var weeklyWageSurplus: Int {
         return wageBudget - currentWageBill
     }
-    
+
     public var isHealthy: Bool {
         return balance >= 0
     }
-    
+
     public var weeklySponsorshipShare: Int {
         return sponsorshipIncome / 52
     }
-    
+
     public var weeklyTvShare: Int {
         return tvIncome / 52
     }
-    
-    /// Processes weekly financial ledger: payroll debits and steady sponsorship/TV credits.
-    public mutating func processWeeklyCashFlow(isHomeMatchThisWeek: Bool = false) {
-        let weeklyIncome = weeklySponsorshipShare + weeklyTvShare + (isHomeMatchThisWeek ? matchdayIncome : 0)
+
+    public var weeklyMerchandiseShare: Int {
+        return merchandiseIncome / 52
+    }
+
+    /// Expected attendance for a home fixture, influenced by the club's pull
+    /// (attendance %) and the calibre of the opposition.
+    public func expectedAttendance(opponentReputation: Int) -> Int {
+        // A marquee opponent draws a fuller house; a minnow leaves empty seats.
+        let glamour = Double(opponentReputation) / 80.0
+        let pct = min(1.0, max(0.35, averageAttendancePct * (0.88 + glamour * 0.24)))
+        return Int(Double(stadiumCapacity) * pct)
+    }
+
+    /// Gate receipts for a single home match (tickets + matchday hospitality).
+    public func matchdayRevenue(opponentReputation: Int) -> Int {
+        let gate = expectedAttendance(opponentReputation: opponentReputation)
+        let ticketRevenue = gate * averageTicketPrice
+        // Food, drink and matchday hospitality add roughly a third again.
+        let hospitality = Int(Double(ticketRevenue) * 0.35)
+        return ticketRevenue + hospitality
+    }
+
+    /// Processes weekly financial ledger: payroll debits and steady
+    /// sponsorship/TV/merchandise credits, plus a specific home-game gate.
+    public mutating func processWeeklyCashFlow(
+        isHomeMatchThisWeek: Bool = false,
+        gateReceipts: Int = 0
+    ) {
+        var weeklyIncome = weeklySponsorshipShare + weeklyTvShare + weeklyMerchandiseShare
+        if isHomeMatchThisWeek {
+            weeklyIncome += (gateReceipts > 0 ? gateReceipts : matchdayIncome)
+        }
         let weeklyExpense = currentWageBill
         balance += (weeklyIncome - weeklyExpense)
     }
-    
-    public static func defaultFor(tier: LeagueTier) -> ClubFinances {
-        // Country strength scales top-flight money; level scales down the pyramid.
+
+    /// Treasury top-up between seasons: boards reinvest a share of the balance
+    /// into a fresh transfer kitty sized by club stature.
+    public mutating func rolloverForNewSeason(reputation: Int) {
+        let kitty = max(transferBudget, Int(Double(tvIncome + sponsorshipIncome) * 0.25))
+        transferBudget = kitty
+        balance = max(balance, kitty / 2)
+    }
+
+    // MARK: - Realistic baseline from club stature
+    //
+    // The shipped dataset has no financial metadata, so we derive believable
+    // money from a club's reputation (which itself is currently flat, so tier
+    // and stadium capacity carry most of the signal). Values are tuned to feel
+    // like the modern European game.
+
+    /// Rough annual turnover bucket for a club of this stature.
+    public static func annualTurnover(reputation: Int, tier: LeagueTier, capacity: Int) -> Int {
         let countryFactor: Double = {
             switch tier.country {
             case .england, .spain, .italy, .germany: return 1.0
@@ -410,25 +541,77 @@ public struct ClubFinances: Codable, Hashable {
         let levelScale: Double = {
             switch tier.level {
             case 1: return 1.0
-            case 2: return 0.18
-            case 3: return 0.05
-            default: return 0.018
+            case 2: return 0.2
+            case 3: return 0.06
+            default: return 0.02
             }
         }()
-        let scale = countryFactor * levelScale
+        // Reputation nudges the top-flight elite up; capacity adds matchday muscle.
+        let repFactor = max(0.35, min(1.9, Double(reputation) / 70.0))
+        let capacityFactor = max(0.5, min(1.6, Double(capacity) / 40_000.0))
+        let base = 150_000_000.0 * countryFactor * levelScale * repFactor * capacityFactor
+        return max(400_000, Int(base))
+    }
 
-        func scaled(_ base: Int) -> Int { Int(Double(base) * scale) }
+    public static func baseTransferBudget(reputation: Int, tier: LeagueTier, capacity: Int) -> Int {
+        let turnover = annualTurnover(reputation: reputation, tier: tier, capacity: capacity)
+        // Boards typically release roughly a quarter of turnover for transfers.
+        return max(150_000, Int(Double(turnover) * 0.25))
+    }
+
+    public static func defaultFor(tier: LeagueTier, reputation: Int = 70, capacity: Int = 25_000) -> ClubFinances {
+        let turnover = annualTurnover(reputation: reputation, tier: tier, capacity: capacity)
+
+        // Split turnover into plausible revenue lines.
+        let tv = Int(Double(turnover) * 0.42)
+        let commercial = Int(Double(turnover) * 0.28)
+        let merchandise = Int(Double(turnover) * 0.10)
+        // Matchday is modelled per-game below; approximate annual here for display.
+        let matchdayAnnual = Int(Double(turnover) * 0.20)
+
+        // Ticket pricing and attendance scale with stature.
+        let rep = max(20, min(95, reputation))
+        let ticketPrice = max(12, Int(15.0 + Double(rep - 20) * 0.9))
+        let attendancePct = min(0.98, 0.55 + Double(rep - 20) / 120.0)
+        let gamesPerSeason = 19
+        let perGameMatchday = max(120_000, matchdayAnnual / gamesPerSeason)
+
+        // Wage budget is roughly 55% of turnover; transfer budget a third of it.
+        let wageBudgetAnnual = Int(Double(turnover) * 0.55)
+        let wageBudget = max(6_000, wageBudgetAnnual / 52)
+        let currentWageBill = Int(Double(wageBudget) * 0.72)
+        let transferBudget = baseTransferBudget(reputation: reputation, tier: tier, capacity: capacity)
+        let balance = Int(Double(turnover) * 0.5)
 
         return ClubFinances(
-            transferBudget: scaled(45_000_000),
-            wageBudget: max(8_000, scaled(1_800_000)),
-            currentWageBill: max(6_000, scaled(1_500_000)),
-            balance: scaled(75_000_000),
-            tvIncome: scaled(110_000_000),
-            matchdayIncome: max(15_000, scaled(1_400_000)),
-            sponsorshipIncome: scaled(40_000_000),
-            merchandiseIncome: scaled(18_000_000)
+            transferBudget: transferBudget,
+            wageBudget: wageBudget,
+            currentWageBill: currentWageBill,
+            balance: balance,
+            tvIncome: tv,
+            matchdayIncome: perGameMatchday,
+            sponsorshipIncome: commercial,
+            merchandiseIncome: merchandise,
+            averageTicketPrice: ticketPrice,
+            averageAttendancePct: attendancePct,
+            stadiumCapacity: capacity
         )
+    }
+
+    /// Tolerant decode so saves from earlier versions (no ticket fields) still load.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        transferBudget = try c.decode(Int.self, forKey: .transferBudget)
+        wageBudget = try c.decode(Int.self, forKey: .wageBudget)
+        currentWageBill = try c.decode(Int.self, forKey: .currentWageBill)
+        balance = try c.decode(Int.self, forKey: .balance)
+        tvIncome = try c.decode(Int.self, forKey: .tvIncome)
+        matchdayIncome = try c.decode(Int.self, forKey: .matchdayIncome)
+        sponsorshipIncome = try c.decode(Int.self, forKey: .sponsorshipIncome)
+        merchandiseIncome = try c.decode(Int.self, forKey: .merchandiseIncome)
+        averageTicketPrice = try c.decodeIfPresent(Int.self, forKey: .averageTicketPrice) ?? 30
+        averageAttendancePct = try c.decodeIfPresent(Double.self, forKey: .averageAttendancePct) ?? 0.8
+        stadiumCapacity = try c.decodeIfPresent(Int.self, forKey: .stadiumCapacity) ?? 20_000
     }
 }
 

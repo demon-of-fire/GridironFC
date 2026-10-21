@@ -18,6 +18,10 @@ struct GridironFCApp: App {
     init() {
         // Attempt to load existing autosave or bootstrap initial data
         if let savedState = try? SaveManager.shared.loadAutoSave() {
+            // Always land on the main menu when the app opens, so the user
+            // deliberately chooses "Continue Career" rather than being dropped
+            // mid-screen. The career state itself is preserved.
+            savedState.currentScreen = .mainMenu
             _gameState = State(initialValue: savedState)
         } else {
             let (clubs, leagues) = DataLoader.loadAllData()

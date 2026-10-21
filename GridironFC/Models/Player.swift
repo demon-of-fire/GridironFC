@@ -376,6 +376,35 @@ public struct Player: Codable, Identifiable, Hashable {
         let calculated = baseValue * ageFactor * posFactor
         return max(15_000, Int(calculated))
     }
+
+    /// A believable weekly wage for a player. Scales steeply with ability so
+    /// elite players earn six figures while squad players earn a modest sum.
+    public static func calculateWage(overall: Int, age: Int, tier: LeagueTier) -> Int {
+        // Base curve calibrated so an 85-overall earns ~£110k/wk, a 65 ~£12k/wk
+        // and a 95-overall superstar ~£330k/wk at the top of the game.
+        let curve = 1_309.0 * pow(1.117, Double(max(0, overall - 45)))
+        // Country and division scale the money on offer.
+        let countryFactor: Double = {
+            switch tier.country {
+            case .england, .spain, .italy, .germany: return 1.0
+            case .france: return 0.8
+            case .portugal, .netherlands, .turkey, .scotland, .belgium: return 0.6
+            default: return 0.45
+            }
+        }()
+        let levelFactor: Double = {
+            switch tier.level {
+            case 1: return 1.0
+            case 2: return 0.35
+            case 3: return 0.18
+            default: return 0.10
+            }
+        }()
+        // Younger players earn slightly less for the same ability.
+        let ageFactor = age < 21 ? 0.75 : (age < 24 ? 0.9 : 1.0)
+        let weekly = curve * countryFactor * levelFactor * ageFactor
+        return max(500, Int((weekly / 100).rounded() * 100))
+    }
 }
 
 // MARK: - Player Attributes

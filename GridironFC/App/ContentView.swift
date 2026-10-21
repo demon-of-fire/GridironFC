@@ -30,8 +30,10 @@ public struct ContentView: View {
                 JobOffersView()
             case .managerProfile:
                 ManagerProfileView()
-            case .dashboard, .squad, .tactics, .standings, .fixtures, .results, .transferHub, .playerSearch, .training, .staff, .finances:
+            case .dashboard, .squad, .tactics, .standings, .fixtures, .results, .transferHub, .playerSearch, .training, .staff:
                 InGameTabView(selectedTab: $selectedTab)
+            case .finances:
+                FinancesView()
             case .matchDay:
                 MatchDayView()
             case .liveMatch:
@@ -168,6 +170,11 @@ public struct InGameTabView: View {
                             gameState.currentScreen = .youthAcademy
                         } label: {
                             Label("Youth Academy", systemImage: "figure.and.child.holdinghands")
+                        }
+                        Button {
+                            gameState.currentScreen = .finances
+                        } label: {
+                            Label("Finances", systemImage: "sterlingsign.circle")
                         }
                         Button {
                             gameState.currentScreen = .managerProfile
@@ -549,24 +556,20 @@ public struct ManagerCreationView: View {
     @State private var lastName = "Morgan"
     @State private var nationality: ManagerNationality = .england
     @State private var age = 38
-
-    // Coaching attributes (allocatable pool keeps it feel like a builder).
-    @State private var tactical = 55
-    @State private var attacking = 55
-    @State private var defending = 55
-    @State private var youth = 55
+    @State private var background: ManagerBackground = .journeyman
 
     private var previewProfile: ManagerProfile {
-        ManagerProfile(
+        let attrs = background.attributes
+        return ManagerProfile(
             firstName: firstName.isEmpty ? "New" : firstName,
             lastName: lastName.isEmpty ? "Manager" : lastName,
             nationality: nationality.rawValue,
             age: age,
             faceSeed: ManagerProfile.generateSeed(first: firstName, last: lastName),
-            tactical: tactical,
-            attacking: attacking,
-            defending: defending,
-            youthDevelopment: youth,
+            tactical: attrs.tactical,
+            attacking: attrs.attacking,
+            defending: attrs.defending,
+            youthDevelopment: attrs.youth,
             reputation: reputationForMode
         )
     }
@@ -612,11 +615,20 @@ public struct ManagerCreationView: View {
                 }
             }
 
-            Section(header: Text("Coaching Attributes")) {
-                attributeSlider(title: CoachingAttribute.tactical.displayName, value: $tactical)
-                attributeSlider(title: CoachingAttribute.attacking.displayName, value: $attacking)
-                attributeSlider(title: CoachingAttribute.defending.displayName, value: $defending)
-                attributeSlider(title: CoachingAttribute.youthDevelopment.displayName, value: $youth)
+            Section(header: Text("Coaching Background")) {
+                Picker("Background", selection: $background) {
+                    ForEach(ManagerBackground.allCases) { bg in
+                        Text(bg.rawValue).tag(bg)
+                    }
+                }
+                .accessibilityHint("Sets your starting coaching strengths")
+                Text(background.summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                attributeRow(.tactical, value: background.attributes.tactical)
+                attributeRow(.attacking, value: background.attributes.attacking)
+                attributeRow(.defending, value: background.attributes.defending)
+                attributeRow(.youthDevelopment, value: background.attributes.youth)
             }
 
             Section {
@@ -633,22 +645,21 @@ public struct ManagerCreationView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private func attributeSlider(title: String, value: Binding<Int>) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack {
-                Text(title)
-                    .font(.subheadline)
-                Spacer()
-                Text("\(value.wrappedValue)")
-                    .font(.subheadline)
-                    .fontWeight(.bold)
-                    .frame(width: 28, alignment: .trailing)
-            }
-            Slider(value: Binding(
-                get: { Double(value.wrappedValue) },
-                set: { value.wrappedValue = Int($0) }
-            ), in: 20...90, step: 1)
+    /// Read-only coaching attribute bar for the chosen background.
+    private func attributeRow(_ attr: CoachingAttribute, value: Int) -> some View {
+        HStack {
+            Image(systemName: attr.iconName)
+                .frame(width: 24)
+                .foregroundStyle(.secondary)
+            Text(attr.displayName)
+                .font(.subheadline)
+            Spacer()
+            Text("\(value)")
+                .font(.subheadline)
+                .fontWeight(.bold)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(attr.displayName) \(value) out of 99")
     }
 
     private func launch() {
@@ -2233,6 +2244,12 @@ public struct PlayerDetailView: View {
         .background(Color(UIColor.systemGroupedBackground))
         .navigationTitle("Player Profile")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") { gameState.currentScreen = .squad }
+                    .accessibilityLabel("Close player profile")
+            }
+        }
     }
 }
 
@@ -2395,11 +2412,77 @@ public struct SettingsView: View {
     }
 }
 
+// MARK: - Club Finances Screen
+
+public struct FinancesView: View {
+    @Environment(GameState.self) private var gameState
+
+    public var body: some View {
+        List {
+            if let club = gameState.userClub {
+                let f = club.finances
+
+                Section(header: Text("Bank")) {
+                    row("Balance", Player.formatCurrency(f.balance), spoken: Player.spokenCurrency(f.balance))
+                    row("Transfer Budget", Player.formatCurrency(f.transferBudget), spoken: Player.spokenCurrency(f.transferBudget))
+                    row("Weekly Wage Budget", Player.formatCurrency(f.wageBudget) + "/w", spoken: Player.spokenCurrency(f.wageBudget) + " per week")
+                    row("Current Wage Bill", Player.formatCurrency(f.currentWageBill) + "/w", spoken: Player.spokenCurrency(f.currentWageBill) + " per week")
+                    row("Wage Headroom", Player.formatCurrency(f.weeklyWageSurplus) + "/w", spoken: Player.spokenCurrency(f.weeklyWageSurplus) + " per week")
+                }
+
+                Section(header: Text("Annual Income")) {
+                    row("TV & Broadcast", Player.formatCurrency(f.tvIncome))
+                    row("Commercial & Sponsorship", Player.formatCurrency(f.sponsorshipIncome))
+                    row("Matchday (est.)", Player.formatCurrency(f.matchdayIncome * 19))
+                    row("Merchandise", Player.formatCurrency(f.merchandiseIncome))
+                }
+
+                Section(header: Text("Matchday Economics")) {
+                    row("Stadium Capacity", "\(club.stadiumCapacity.formatted())")
+                    row("Average Ticket Price", Player.formatCurrency(f.averageTicketPrice))
+                    row("Typical Attendance", "\(Int(Double(club.stadiumCapacity) * f.averageAttendancePct).formatted()) (\(Int(f.averageAttendancePct * 100))%)")
+                    Text("Gate receipts and hospitality are banked after each home match, scaled by the calibre of the visiting side.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section(header: Text("Squad & Facilities")) {
+                    row("Squad Size", "\(club.players.count)")
+                    row("Academy Level", "\(club.youthAcademyLevel) / 5")
+                    row("Training Ground", "\(club.trainingFacilityLevel) / 5")
+                }
+            } else {
+                Text("Take charge of a club to view its finances.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("Finances")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") { gameState.currentScreen = .dashboard }
+                    .accessibilityLabel("Close finances")
+            }
+        }
+    }
+
+    private func row(_ label: String, _ value: String, spoken: String? = nil) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            Text(value).fontWeight(.bold)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label) \(spoken ?? value)")
+    }
+}
+
 // MARK: - Negotiation View
 
 public struct NegotiationView: View {
     @Environment(GameState.self) private var gameState
-    
+
     @State private var bidFee: Double = 0
     @State private var wage: Double = 1_000
     @State private var contractYears = 3
@@ -2654,6 +2737,12 @@ public struct EuropeanCompetitionsView: View {
         }
         .navigationTitle("European Competitions")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") { gameState.currentScreen = .dashboard }
+                    .accessibilityLabel("Close European Competitions")
+            }
+        }
     }
 
     private var leaguePhaseHeader: some View {
@@ -2900,6 +2989,12 @@ public struct InternationalHubView: View {
         }
         .navigationTitle("International")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") { gameState.currentScreen = .dashboard }
+                    .accessibilityLabel("Close International")
+            }
+        }
     }
 
     /// Nations the user can take over, ordered by ranking.
@@ -2946,6 +3041,53 @@ public struct YouthAcademyView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                Section(header: Text("Scouting & Facilities")) {
+                    if let scout = club.bestScout {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(scout.name)
+                                    .font(.body)
+                                Text("Lead Scout • \(String(repeating: "★", count: scout.quality))")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button(role: .destructive) {
+                                releaseScout(scout)
+                            } label: {
+                                Text("Release")
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityLabel("Release scout \(scout.name)")
+                        }
+                    } else {
+                        Text("No scouts employed. Hiring a scout improves the quality of each academy intake.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Button {
+                        hireScout()
+                    } label: {
+                        Label("Hire Scout (\(Player.formatCurrency(Club.scoutHiringFee(quality: 4))))", systemImage: "person.badge.plus")
+                    }
+                    .accessibilityHint("Hires a highly-rated scout using your transfer budget")
+
+                    Button {
+                        upgradeAcademy()
+                    } label: {
+                        Label("Upgrade Academy to Level \(min(5, club.youthAcademyLevel + 1)) (\(club.youthAcademyLevel >= 5 ? "MAX" : Player.formatCurrency(club.academyUpgradeCost)))", systemImage: "graduationcap")
+                    }
+                    .disabled(club.youthAcademyLevel >= 5)
+
+                    Button {
+                        upgradeTraining()
+                    } label: {
+                        Label("Upgrade Training Ground to Level \(min(5, club.trainingFacilityLevel + 1)) (\(club.trainingFacilityLevel >= 5 ? "MAX" : Player.formatCurrency(club.trainingUpgradeCost)))", systemImage: "figure.run")
+                    }
+                    .disabled(club.trainingFacilityLevel >= 5)
+                }
+
                 if club.academyProspects.isEmpty {
                     Section {
                         Text("No prospects in the academy yet. A new intake arrives at the start of next season.")
@@ -2967,6 +3109,12 @@ public struct YouthAcademyView: View {
         }
         .navigationTitle("Youth Academy")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") { gameState.currentScreen = .dashboard }
+                    .accessibilityLabel("Close Youth Academy")
+            }
+        }
         .alert("Academy", isPresented: $showOutcome) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -3047,6 +3195,54 @@ public struct YouthAcademyView: View {
         guard let clubIdx = gameState.clubs.firstIndex(where: { $0.isUserClub }) else { return }
         if gameState.clubs[clubIdx].releaseProspect(withId: prospect.id) != nil {
             outcomeMessage = "\(prospect.fullName) has been released from the academy."
+        }
+        showOutcome = true
+        try? SaveManager.shared.autoSave(gameState: gameState)
+    }
+
+    private func hireScout() {
+        guard let clubIdx = gameState.clubs.firstIndex(where: { $0.isUserClub }) else { return }
+        if let scout = gameState.clubs[clubIdx].hireScout(quality: 4) {
+            outcomeMessage = "\(scout.name) has joined as a scout. Academy intakes will improve."
+            gameState.addNews(
+                headline: "New Scout Appointed",
+                body: "\(scout.name) has joined the club as a scout. Expect stronger academy intakes.",
+                category: .board,
+                sender: "The Board"
+            )
+        } else {
+            outcomeMessage = "You cannot afford a new scout right now."
+        }
+        showOutcome = true
+        try? SaveManager.shared.autoSave(gameState: gameState)
+    }
+
+    private func releaseScout(_ scout: StaffMember) {
+        guard let clubIdx = gameState.clubs.firstIndex(where: { $0.isUserClub }) else { return }
+        if gameState.clubs[clubIdx].releaseStaff(withId: scout.id) {
+            outcomeMessage = "\(scout.name) has left the club."
+        }
+        showOutcome = true
+        try? SaveManager.shared.autoSave(gameState: gameState)
+    }
+
+    private func upgradeAcademy() {
+        guard let clubIdx = gameState.clubs.firstIndex(where: { $0.isUserClub }) else { return }
+        if gameState.clubs[clubIdx].upgradeYouthAcademy() {
+            outcomeMessage = "The youth academy is now Level \(gameState.clubs[clubIdx].youthAcademyLevel)."
+        } else {
+            outcomeMessage = "You cannot afford that upgrade right now."
+        }
+        showOutcome = true
+        try? SaveManager.shared.autoSave(gameState: gameState)
+    }
+
+    private func upgradeTraining() {
+        guard let clubIdx = gameState.clubs.firstIndex(where: { $0.isUserClub }) else { return }
+        if gameState.clubs[clubIdx].upgradeTrainingGround() {
+            outcomeMessage = "The training ground is now Level \(gameState.clubs[clubIdx].trainingFacilityLevel)."
+        } else {
+            outcomeMessage = "You cannot afford that upgrade right now."
         }
         showOutcome = true
         try? SaveManager.shared.autoSave(gameState: gameState)

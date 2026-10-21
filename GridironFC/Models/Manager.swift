@@ -81,6 +81,48 @@ public enum CoachingAttribute: String, Codable, CaseIterable, Identifiable, Hash
     }
 }
 
+// MARK: - Manager Background
+
+/// A manager's playing/coaching pedigree, chosen at the start of a career.
+/// The background — not free sliders — determines the starting coaching
+/// attributes, giving each career a distinct tactical identity.
+public enum ManagerBackground: String, Codable, CaseIterable, Identifiable, Hashable {
+    case exStriker = "Former Striker"
+    case exDefender = "Former Defender"
+    case exMidfielder = "Former Midfielder"
+    case exGoalkeeper = "Former Goalkeeper"
+    case academyCoach = "Academy Coach"
+    case dataAnalyst = "Data Analyst"
+    case journeyman = "Journeyman Pro"
+
+    public var id: String { rawValue }
+
+    public var summary: String {
+        switch self {
+        case .exStriker: return "A lethal finisher in his day; builds adventurous, front-foot sides."
+        case .exDefender: return "A no-nonsense centre-half; teams are organised, compact and hard to beat."
+        case .exMidfielder: return "A metronome who dictates tempo; balanced, possession-minded football."
+        case .exGoalkeeper: return "A born organiser; reads the game superbly from the back."
+        case .academyCoach: return "Twenty years developing teenagers; unrivalled at bringing youth through."
+        case .dataAnalyst: return "A modern, analytics-first thinker with sharp tactical insight."
+        case .journeyman: return "A well-travelled pro with no glaring weakness and no great strength."
+        }
+    }
+
+    /// The fixed starting coaching spread (tactical, attacking, defending, youth).
+    public var attributes: (tactical: Int, attacking: Int, defending: Int, youth: Int) {
+        switch self {
+        case .exStriker:     return (60, 74, 52, 50)
+        case .exDefender:    return (62, 50, 76, 50)
+        case .exMidfielder:  return (70, 62, 62, 54)
+        case .exGoalkeeper:  return (68, 52, 70, 52)
+        case .academyCoach:  return (56, 54, 54, 80)
+        case .dataAnalyst:   return (78, 60, 64, 52)
+        case .journeyman:    return (60, 60, 60, 60)
+        }
+    }
+}
+
 // MARK: - Manager Profile
 
 /// The user's managerial persona. Purely cosmetic + reputation tracking; the

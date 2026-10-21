@@ -209,15 +209,23 @@ public final class DataLoader {
             clubPlayers.append(contentsOf: filler)
         }
         
+        let baseFinances = ClubFinances.defaultFor(
+            tier: tier,
+            reputation: raw.reputation,
+            capacity: raw.stadiumCapacity
+        )
         let finances = ClubFinances(
-            transferBudget: raw.budget ?? ClubFinances.defaultFor(tier: tier).transferBudget,
-            wageBudget: raw.wageBudget ?? ClubFinances.defaultFor(tier: tier).wageBudget,
+            transferBudget: (raw.budget ?? 0) > 0 ? raw.budget! : baseFinances.transferBudget,
+            wageBudget: (raw.wageBudget ?? 0) > 0 ? raw.wageBudget! : baseFinances.wageBudget,
             currentWageBill: 0,
-            balance: (raw.budget ?? 10_000_000) * 2,
-            tvIncome: ClubFinances.defaultFor(tier: tier).tvIncome,
-            matchdayIncome: Int(Double(raw.stadiumCapacity) * 22.0),
-            sponsorshipIncome: ClubFinances.defaultFor(tier: tier).sponsorshipIncome,
-            merchandiseIncome: ClubFinances.defaultFor(tier: tier).merchandiseIncome
+            balance: baseFinances.balance,
+            tvIncome: baseFinances.tvIncome,
+            matchdayIncome: baseFinances.matchdayIncome,
+            sponsorshipIncome: baseFinances.sponsorshipIncome,
+            merchandiseIncome: baseFinances.merchandiseIncome,
+            averageTicketPrice: baseFinances.averageTicketPrice,
+            averageAttendancePct: baseFinances.averageAttendancePct,
+            stadiumCapacity: raw.stadiumCapacity
         )
         
         return Club(
@@ -260,7 +268,7 @@ public final class DataLoader {
         )
         
         let contractYears = raw.contractYears ?? Int.random(in: 2...4)
-        let weeklyWage = raw.wage ?? max(400, raw.overall * 40 * tier.level)
+        let weeklyWage = raw.wage ?? Player.calculateWage(overall: raw.overall, age: raw.age, tier: tier)
         let contract = Contract(wage: weeklyWage, yearsRemaining: contractYears, signingDate: "2024-07")
         
         return Player(
@@ -594,9 +602,12 @@ public final class DataLoader {
 
         let developmentPositions: [Position] = [.GK, .CB, .LB, .RB, .CDM, .CM, .CAM, .LM, .RM, .LW, .RW, .ST, .CB, .CM, .ST]
 
-        // Academy level (1-5) and reputation drive the ceiling.
+        // Academy level (1-5), reputation and scouting drive the ceiling.
         let levelBonus = (club.youthAcademyLevel - 3) * 3
         let repBonus = (club.reputation - 55) / 6
+        // A top scout surfaces better prospects; no scout means a thinner crop.
+        let scoutQuality = club.staff.filter { $0.role == .scout }.map(\.quality).max() ?? 0
+        let scoutBonus = (scoutQuality - 2) * 2
         let tierBase: Int
         switch club.leagueTier.level {
         case 1: tierBase = 52
@@ -604,7 +615,7 @@ public final class DataLoader {
         case 3: tierBase = 44
         default: tierBase = 40
         }
-        let base = tierBase + levelBonus + repBonus
+        let base = tierBase + levelBonus + repBonus + scoutBonus
 
         var prospects: [Player] = []
         for _ in 0..<count {
@@ -612,8 +623,8 @@ public final class DataLoader {
             let age = Int.random(in: 15...18)
             let variance = Int.random(in: -3...4)
             let overall = max(35, min(70, base + variance))
-            // Potential scales with youth-development investment and youth.
-            let potBonus = Int.random(in: 6...18) + (club.youthAcademyLevel - 2) * 3
+            // Potential scales with youth-development investment, scouting and youth.
+            let potBonus = Int.random(in: 6...18) + (club.youthAcademyLevel - 2) * 3 + max(0, scoutBonus)
             let potential = max(overall + 5, min(88, overall + potBonus))
 
             let attrs = generateAttributes(overall: overall, position: pos)
