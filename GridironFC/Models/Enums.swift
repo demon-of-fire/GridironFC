@@ -1190,7 +1190,7 @@ public enum GameMode: String, Codable, CaseIterable, Identifiable, Hashable {
     
     public var displayName: String {
         switch self {
-        case .createClub: return "Create a Club"
+        case .createClub: return "Own a New Club"
         case .manageClub: return "Manage Existing Club"
         case .unemployed: return "Start Unemployed"
         }
@@ -1199,7 +1199,7 @@ public enum GameMode: String, Codable, CaseIterable, Identifiable, Hashable {
     public var modeDescription: String {
         switch self {
         case .createClub:
-            return "Build a club from scratch, customize your stadium and badge, and climb from League Two."
+            return "Create and own a club: appoint managers, build a staff team and invest in your facilities."
         case .manageClub:
             return "Take charge of an existing English club with real squads and established expectations."
         case .unemployed:

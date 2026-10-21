@@ -31,7 +31,11 @@ public struct ContentView: View {
             case .managerProfile:
                 ManagerProfileView()
             case .dashboard, .squad, .tactics, .standings, .fixtures, .results, .transferHub, .playerSearch, .training, .staff:
-                InGameTabView(selectedTab: $selectedTab)
+                if gameState.gameMode == .createClub {
+                    OwnerCareerTabView()
+                } else {
+                    InGameTabView(selectedTab: $selectedTab)
+                }
             case .finances:
                 FinancesView()
             case .matchDay:
@@ -294,8 +298,9 @@ public struct MainMenuView: View {
     
     private func startMode(_ mode: GameMode) {
         gameState.gameMode = mode
-        // Every career mode now begins with manager customisation.
-        gameState.currentScreen = .managerCreation
+        // Owner careers begin by founding their club; manager careers begin by
+        // creating the person who will run training and matches.
+        gameState.currentScreen = mode == .createClub ? .clubCreation : .managerCreation
     }
 }
 
@@ -364,6 +369,8 @@ public struct ClubCreationView: View {
     @State private var primaryColor = "#EF0107"
     @State private var secondaryColor = "#FFFFFF"
     @State private var selectedReplaceClubId: UUID?
+    @State private var ownerName = "Alex Morgan"
+    @State private var clubVision: ClubVision = .sustainable
     
     private var leagueTwoClubs: [Club] {
         return gameState.clubs.filter { $0.leagueTier == .leagueTwo }
@@ -371,6 +378,20 @@ public struct ClubCreationView: View {
     
     public var body: some View {
         Form {
+            if gameState.gameMode == .createClub {
+                Section(header: Text("Ownership"), footer: Text("As owner, you appoint the manager and build the football operation. You will not control tactics or the matchday team.")) {
+                    TextField("Owner Name", text: $ownerName)
+                        .accessibilityLabel("Owner name input")
+                    Picker("Club Vision", selection: $clubVision) {
+                        ForEach(ClubVision.allCases) { vision in
+                            Text(vision.rawValue).tag(vision)
+                        }
+                    }
+                    Text(clubVision.summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
             Section(header: Text("Club Identity")) {
                 TextField("Club Name", text: $clubName)
                     .accessibilityLabel("Club Name input")
@@ -410,6 +431,9 @@ public struct ClubCreationView: View {
             
             Section {
                 Button(action: {
+                    if gameState.gameMode == .createClub {
+                        gameState.owner = OwnerProfile(name: ownerName.trimmingCharacters(in: .whitespaces).isEmpty ? "Club Owner" : ownerName, vision: clubVision)
+                    }
                     let targetId = selectedReplaceClubId ?? leagueTwoClubs.first?.id ?? UUID()
                     _ = gameState.createCustomClub(
                         name: clubName,
@@ -434,16 +458,16 @@ public struct ClubCreationView: View {
                     try? SaveManager.shared.autoSave(gameState: gameState)
                     gameState.currentScreen = .dashboard
                 }) {
-                    Text("Launch Franchise")
+                    Text(gameState.gameMode == .createClub ? "Launch Owner Career" : "Launch Club")
                         .fontWeight(.bold)
                         .frame(maxWidth: .infinity)
                 }
                 .disabled(clubName.trimmingCharacters(in: .whitespaces).isEmpty)
-                .accessibilityLabel("Launch Franchise")
-                .accessibilityHint("Finalizes club creation and opens the manager dashboard")
+                .accessibilityLabel("Launch club career")
+                .accessibilityHint("Finalizes club creation and opens your career hub")
             }
         }
-        .navigationTitle("Create Your Club")
+        .navigationTitle(gameState.gameMode == .createClub ? "Found Your Club" : "Create Your Club")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             if selectedReplaceClubId == nil {
@@ -879,6 +903,218 @@ public struct ManagerProfileView: View {
             Text("\(value)")
                 .font(.subheadline)
                 .fontWeight(.bold)
+        }
+    }
+}
+
+// MARK: - Owner Career
+
+public enum OwnerTab: String, CaseIterable, Identifiable {
+    case board = "Boardroom"
+    case people = "People"
+    case facilities = "Facilities"
+    case club = "Club"
+    public var id: String { rawValue }
+    var icon: String {
+        switch self {
+        case .board: return "building.columns.fill"
+        case .people: return "person.3.fill"
+        case .facilities: return "hammer.fill"
+        case .club: return "shield.fill"
+        }
+    }
+}
+
+public struct OwnerCareerTabView: View {
+    @Environment(GameState.self) private var gameState
+    @State private var tab: OwnerTab = .board
+
+    public var body: some View {
+        TabView(selection: $tab) {
+            OwnerBoardroomView().tabItem { Label(OwnerTab.board.rawValue, systemImage: OwnerTab.board.icon) }.tag(OwnerTab.board)
+            OwnerPeopleView().tabItem { Label(OwnerTab.people.rawValue, systemImage: OwnerTab.people.icon) }.tag(OwnerTab.people)
+            OwnerFacilitiesView().tabItem { Label(OwnerTab.facilities.rawValue, systemImage: OwnerTab.facilities.icon) }.tag(OwnerTab.facilities)
+            OwnerClubView().tabItem { Label(OwnerTab.club.rawValue, systemImage: OwnerTab.club.icon) }.tag(OwnerTab.club)
+        }
+        .navigationTitle(gameState.userClub?.name ?? "Owner Career")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button { gameState.currentScreen = .mainMenu } label: { Image(systemName: "house") }
+                    .accessibilityLabel("Main Menu")
+            }
+        }
+    }
+}
+
+public struct OwnerBoardroomView: View {
+    @Environment(GameState.self) private var gameState
+
+    public var body: some View {
+        ScrollView {
+            if let club = gameState.userClub {
+                VStack(alignment: .leading, spacing: 16) {
+                    ownerHero(club)
+                    Button {
+                        gameState.advanceOwnerWeek()
+                    } label: {
+                        Label(gameState.isEndOfSeason ? "Plan New Season" : "Advance One Week", systemImage: "calendar.badge.clock")
+                            .fontWeight(.bold).frame(maxWidth: .infinity).padding()
+                    }
+                    .background(Color.accentColor).foregroundStyle(.white).clipShape(RoundedRectangle(cornerRadius: 14))
+                    .accessibilityHint("Simulates the next week. Your manager controls matchday.")
+
+                    GroupBox("Owner's Briefing") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            briefing("First-team manager", club.manager, "person.badge.key")
+                            briefing("Club vision", gameState.owner.vision.rawValue, "scope")
+                            briefing("Cash balance", Player.formatCurrency(club.finances.balance), "banknote")
+                            briefing("Supporter confidence", "\(gameState.owner.supporterConfidence)%", "heart.fill")
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    GroupBox("Board Priorities") {
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text("• Protect the club's financial health while building a competitive squad.")
+                            Text("• Give your manager the support to deliver \(target(for: club)).")
+                            Text("• Review appointments and infrastructure after each run of fixtures.")
+                        }.font(.subheadline).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }.padding()
+            }
+        }
+        .background(Color(UIColor.systemGroupedBackground))
+    }
+
+    private func briefing(_ label: String, _ value: String, _ icon: String) -> some View {
+        HStack { Label(label, systemImage: icon); Spacer(); Text(value).fontWeight(.semibold).multilineTextAlignment(.trailing) }
+    }
+    private func ownerHero(_ club: Club) -> some View {
+        HStack(spacing: 14) {
+            CrestView(club: club, size: 62)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Welcome, \(gameState.owner.name)").font(.title3).fontWeight(.bold)
+                Text("Owner • Season \(gameState.season.year)").foregroundStyle(.secondary)
+                Text("\(gameState.owner.legacyPoints) legacy points").font(.caption).foregroundStyle(.secondary)
+            }; Spacer()
+        }.padding().background(Color(UIColor.secondarySystemGroupedBackground)).clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+    private func target(for club: Club) -> String { club.leagueTier.isTopFlight ? "a stable top-half finish" : "a promotion challenge" }
+}
+
+public struct OwnerPeopleView: View {
+    @Environment(GameState.self) private var gameState
+    @State private var message: String?
+    @State private var showSackConfirmation = false
+
+    public var body: some View {
+        List {
+            if let club = gameState.userClub {
+                Section("First-Team Manager") {
+                    LabeledContent("Current manager", value: club.manager)
+                    Text("The manager owns match tactics, selection and player development. As owner, your job is to set direction and provide resources.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if club.manager != "Interim Manager" {
+                        Button("Dismiss Manager", role: .destructive) { showSackConfirmation = true }
+                    }
+                }
+                Section("Manager Shortlist") {
+                    ForEach(ManagerCandidate.shortlist) { candidate in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack { Text(candidate.name).fontWeight(.semibold); Spacer(); Text("Rep \(candidate.reputation)").foregroundStyle(.secondary) }
+                            Text(candidate.style).font(.caption).foregroundStyle(.secondary)
+                            HStack { Text("\(Player.formatCurrency(candidate.wage))/wk").font(.caption); Spacer(); Button("Appoint") { appoint(candidate) }.buttonStyle(.borderedProminent) }
+                        }.padding(.vertical, 3)
+                    }
+                }
+                Section("Football Department") {
+                    ForEach(StaffRole.allCases) { role in
+                        let team = club.staff.filter { $0.role == role }
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(role.displayName).fontWeight(.semibold)
+                            Text(team.isEmpty ? "Vacant — \(role.roleDescription)" : team.map { "\($0.name) \(String(repeating: "★", count: $0.quality))" }.joined(separator: " • "))
+                                .font(.caption).foregroundStyle(.secondary)
+                            Button("Hire 3★ \(role.displayName)") { hire(role) }.buttonStyle(.bordered)
+                        }.padding(.vertical, 2)
+                    }
+                }
+            }
+        }
+        .alert("Board Decision", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) { Button("OK", role: .cancel) {} } message: { Text(message ?? "") }
+        .confirmationDialog("Dismiss \(gameState.userClub?.manager ?? "manager")?", isPresented: $showSackConfirmation, titleVisibility: .visible) {
+            Button("Dismiss Manager", role: .destructive) { dismiss() }
+        } message: { Text("This will require a compensation payment and leave the club with an interim manager.") }
+    }
+    private func appoint(_ candidate: ManagerCandidate) {
+        let succeeded = gameState.appointManager(candidate)
+        message = succeeded ? "\(candidate.name) has accepted your offer." : "The club cannot afford this appointment."
+        if succeeded { try? SaveManager.shared.autoSave(gameState: gameState) }
+    }
+    private func dismiss() {
+        let succeeded = gameState.dismissManager()
+        message = succeeded ? "The manager has been dismissed. Begin your search immediately." : "The club cannot meet the compensation payment."
+        if succeeded { try? SaveManager.shared.autoSave(gameState: gameState) }
+    }
+    private func hire(_ role: StaffRole) {
+        guard let idx = gameState.clubs.firstIndex(where: { $0.isUserClub }) else { return }
+        if let staffer = gameState.clubs[idx].hireStaff(role: role, quality: 3) {
+            message = "\(staffer.name) joins as \(role.displayName)."
+            try? SaveManager.shared.autoSave(gameState: gameState)
+        } else { message = "The club cannot afford this appointment." }
+    }
+}
+
+public struct OwnerFacilitiesView: View {
+    @Environment(GameState.self) private var gameState
+    @State private var message: String?
+    public var body: some View {
+        List {
+            if let club = gameState.userClub {
+                Section("Capital Projects") {
+                    project("Training Ground", level: club.trainingFacilityLevel, detail: "Raises the quality of daily player development.", cost: club.trainingUpgradeCost) { $0.upgradeTrainingGround() }
+                    project("Youth Academy", level: club.youthAcademyLevel, detail: "Improves the yearly intake and club pipeline.", cost: club.academyUpgradeCost) { $0.upgradeYouthAcademy() }
+                    project("Medical Department", level: club.medicalFacilityLevel, detail: "Supports injury prevention and recovery.", cost: club.medicalUpgradeCost) { $0.upgradeMedicalFacilities() }
+                }
+                Section("Stadium") {
+                    LabeledContent("\(club.stadium)", value: "\(club.stadiumCapacity.formatted()) seats")
+                    Text("Add roughly 15% capacity to grow matchday income and the club's profile.").font(.caption).foregroundStyle(.secondary)
+                    Button("Expand Stadium — \(Player.formatCurrency(club.stadiumExpansionCost))") { expand() }.disabled(club.finances.balance < club.stadiumExpansionCost)
+                }
+                Section("Available Capital") { Text(Player.formatCurrency(club.finances.balance)).font(.title3).fontWeight(.bold) }
+            }
+        }
+        .alert("Capital Project", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) { Button("OK", role: .cancel) {} } message: { Text(message ?? "") }
+    }
+    private func project(_ title: String, level: Int, detail: String, cost: Int, action: @escaping (inout Club) -> Bool) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack { Text(title).fontWeight(.semibold); Spacer(); Text("Level \(level)/5").foregroundStyle(.secondary) }
+            Text(detail).font(.caption).foregroundStyle(.secondary)
+            Button(level >= 5 ? "Maximum level" : "Upgrade — \(Player.formatCurrency(cost))") { upgrade(action) }.disabled(level >= 5)
+        }.padding(.vertical, 3)
+    }
+    private func upgrade(_ action: (inout Club) -> Bool) {
+        guard let idx = gameState.clubs.firstIndex(where: { $0.isUserClub }) else { return }
+        let succeeded = action(&gameState.clubs[idx])
+        message = succeeded ? "Project approved. The club infrastructure has improved." : "The club cannot fund this project right now."
+        if succeeded { try? SaveManager.shared.autoSave(gameState: gameState) }
+    }
+    private func expand() {
+        guard let idx = gameState.clubs.firstIndex(where: { $0.isUserClub }) else { return }
+        let succeeded = gameState.clubs[idx].expandStadium()
+        message = succeeded ? "Expansion approved. Capacity is now \(gameState.clubs[idx].stadiumCapacity.formatted())." : "The club cannot fund this project right now."
+        if succeeded { try? SaveManager.shared.autoSave(gameState: gameState) }
+    }
+}
+
+public struct OwnerClubView: View {
+    @Environment(GameState.self) private var gameState
+    public var body: some View {
+        List {
+            if let club = gameState.userClub {
+                Section("Club Identity") { LabeledContent("City", value: club.city); LabeledContent("Division", value: club.leagueTier.displayName); LabeledContent("Reputation", value: "\(club.reputation)/100") }
+                Section("Operating Model") { LabeledContent("Squad", value: "\(club.players.count) senior players"); LabeledContent("Staff", value: "\(club.staff.count) employees"); LabeledContent("Weekly wage bill", value: Player.formatCurrency(club.totalWeeklyWageBill)) }
+                Section("Owner Note") { Text("This is an owner-only career. The manager handles the football; you shape the people, money, facilities and long-term identity of \(club.name).") }
+            }
         }
     }
 }

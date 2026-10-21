@@ -235,6 +235,33 @@ public struct Club: Codable, Identifiable, Hashable {
         return 2_000_000 * trainingFacilityLevel
     }
 
+    public var medicalUpgradeCost: Int {
+        return 1_250_000 * medicalFacilityLevel
+    }
+
+    public var stadiumExpansionCost: Int {
+        return max(2_500_000, stadiumCapacity * 700)
+    }
+
+    /// Owner-only appointment. The fee represents search, signing and contract
+    /// costs; ongoing wages are rolled into the club wage bill.
+    @discardableResult
+    public mutating func hireStaff(role: StaffRole, quality: Int) -> StaffMember? {
+        let stars = max(1, min(5, quality))
+        let fee = 180_000 + (stars * stars * 140_000)
+        guard finances.balance >= fee else { return nil }
+        finances.balance -= fee
+        let staffer = StaffMember(
+            name: Self.randomStaffName(role: role),
+            role: role,
+            quality: stars,
+            wage: 500 + stars * 850
+        )
+        staff.append(staffer)
+        finances.currentWageBill = totalWeeklyWageBill
+        return staffer
+    }
+
     /// Hires a new scout, paying from the treasury. Returns the new staff member
     /// (or nil if the club cannot afford it).
     @discardableResult
@@ -280,10 +307,34 @@ public struct Club: Codable, Identifiable, Hashable {
         return true
     }
 
+    @discardableResult
+    public mutating func upgradeMedicalFacilities() -> Bool {
+        guard medicalFacilityLevel < 5, finances.balance >= medicalUpgradeCost else { return false }
+        finances.balance -= medicalUpgradeCost
+        medicalFacilityLevel += 1
+        return true
+    }
+
+    @discardableResult
+    public mutating func expandStadium() -> Bool {
+        guard finances.balance >= stadiumExpansionCost else { return false }
+        finances.balance -= stadiumExpansionCost
+        stadiumCapacity += max(1_500, Int(Double(stadiumCapacity) * 0.15))
+        finances.stadiumCapacity = stadiumCapacity
+        finances.matchdayIncome = max(finances.matchdayIncome, stadiumCapacity * finances.averageTicketPrice)
+        return true
+    }
+
     private static func randomScoutName() -> String {
         let first = ["Alan", "Brian", "Colin", "Derek", "Graham", "Ian", "Keith", "Malcolm", "Nigel", "Roy"]
         let last = ["Carr", "Doyle", "Ellis", "Hughes", "Kerr", "Lynch", "Nolan", "Pearce", "Quinn", "Ward"]
         return "\(first.randomElement() ?? "Alan") \(last.randomElement() ?? "Carr")"
+    }
+
+    private static func randomStaffName(role: StaffRole) -> String {
+        let first = ["Avery", "Casey", "Harper", "Jordan", "Morgan", "Riley", "Sam", "Taylor"]
+        let last = ["Bennett", "Carter", "Davies", "Hughes", "Khan", "Murphy", "Patel", "Reid"]
+        return "\(first.randomElement() ?? "Alex") \(last.randomElement() ?? "Reid")"
     }
 
     @discardableResult

@@ -6,7 +6,7 @@
 
 ## 🌟 Key Features
 
-- **Three Career Modes**: *Create a Club* (build a club and replace a League Two side), *Manage Existing Club* (take over any of the 92 clubs), and *Create a Player* (guide a single player's career).
+- **Distinct Career Roles**: *Own a New Club* is an owner-first career with a boardroom, manager appointments, staff recruitment, facilities and stadium investment. *Manage Existing Club* is a head-coach career centred on tactics, squad selection and matchdays. *Start Unemployed* begins a traditional manager journey from the job market.
 - **Dynamic State Engine (`@Observable GameState`)**: Built on modern iOS 17 Observation macros for seamless, reactive data updates across all views.
 - **Deep Player Simulation**: Over 30 technical, physical, mental, and goalkeeping attributes generated using position-specific procedural templates with randomized variance and specialty overrides.
 - **Procedural Faces & Crests**: Every player portrait and club badge is generated deterministically from a stable seed — no real likenesses or trademarked imagery are used, keeping the build fully offline and asset-free.
@@ -67,9 +67,9 @@ GridironFC/
 
 | Mode | Description |
 | --- | --- |
-| **Create a Club** | Define a name, stadium, city, and kit colours, then replace a League Two club and build a squad from scratch. |
-| **Manage Existing Club** | Browse and take charge of any of the 92 clubs across all four English divisions. |
-| **Create a Player** | Create a custom player, assign them to a starting club, and guide both the club and the player's development. |
+| **Own a New Club** | Found a club, set its long-term vision, appoint or dismiss the manager, hire specialist staff and invest in training, academy, medical and stadium infrastructure. |
+| **Manage Existing Club** | Create a manager, then take charge of an existing club's tactics, squad, training and matchdays. |
+| **Start Unemployed** | Create a manager without a club and work your way through job offers. |
 
 ---
 

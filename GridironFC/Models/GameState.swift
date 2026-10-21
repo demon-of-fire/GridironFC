@@ -95,6 +95,9 @@ public final class GameState: Codable {
     // Managerial Career
     public var manager: ManagerProfile
     public var jobOffers: [JobOffer]
+    // Ownership Career. This remains independent of the manager profile so an
+    // owner never becomes the person selecting the XI.
+    public var owner: OwnerProfile
     
     // European club competitions (Champions League, Europa League, Conference League)
     public var europeanCompetitions: [EuropeanCompetitionState]
@@ -127,6 +130,7 @@ public final class GameState: Codable {
         matchSettings: MatchSettings = MatchSettings(),
         manager: ManagerProfile = ManagerProfile(),
         jobOffers: [JobOffer] = [],
+        owner: OwnerProfile = OwnerProfile(),
         europeanCompetitions: [EuropeanCompetitionState] = [],
         europeanMatchweek: Int = 0,
         nationalTeams: [NationalTeam] = [],
@@ -150,6 +154,7 @@ public final class GameState: Codable {
         self.matchSettings = matchSettings
         self.manager = manager
         self.jobOffers = jobOffers
+        self.owner = owner
         self.europeanCompetitions = europeanCompetitions
         self.europeanMatchweek = europeanMatchweek
         self.nationalTeams = nationalTeams
@@ -1269,7 +1274,7 @@ public final class GameState: Codable {
             reputation: 45,
             isUserClub: true,
             players: [],
-            manager: manager.fullName
+            manager: gameMode == .createClub ? "Interim Manager" : manager.fullName
         )
         
         // Substitute in clubs array
@@ -1295,13 +1300,50 @@ public final class GameState: Codable {
         
         addNews(
             headline: "\(userClub.name) Enters \(userClub.leagueTier.displayName)!",
-            body: "\(userClub.name) has officially taken over at \(userClub.stadium).",
+            body: gameMode == .createClub
+                ? "\(owner.name) has founded \(userClub.name). Your first decision is who will lead the football department."
+                : "\(userClub.name) has officially taken over at \(userClub.stadium).",
             category: .board,
             sender: "The Board — \(userClub.name)"
         )
-        seedManagerInbox()
+        if gameMode != .createClub { seedManagerInbox() }
         
         return userClub
+    }
+
+    /// An owner advances the club's week as an observer. Fixtures are fully
+    /// simulated; the owner then reacts through appointments and investment.
+    public func advanceOwnerWeek() {
+        guard gameMode == .createClub, userClub != nil else { return }
+        advanceWeek()
+        owner.legacyPoints += 1
+        try? SaveManager.shared.autoSave(gameState: self)
+    }
+
+    public func appointManager(_ candidate: ManagerCandidate) -> Bool {
+        guard gameMode == .createClub,
+              let index = clubs.firstIndex(where: { $0.isUserClub }),
+              clubs[index].finances.balance >= candidate.compensation else { return false }
+        clubs[index].finances.balance -= candidate.compensation
+        clubs[index].finances.wageBudget = max(clubs[index].finances.wageBudget, candidate.wage + 2_000)
+        clubs[index].manager = candidate.name
+        owner.supporterConfidence = min(100, owner.supporterConfidence + 5)
+        addNews(headline: "\(candidate.name) Appointed Manager", body: "The board have appointed \(candidate.name). Their stated approach: \(candidate.style).", category: .board, sender: "Owner's Office")
+        return true
+    }
+
+    public func dismissManager() -> Bool {
+        guard gameMode == .createClub,
+              let index = clubs.firstIndex(where: { $0.isUserClub }),
+              clubs[index].manager != "Interim Manager" else { return false }
+        let outgoing = clubs[index].manager
+        let settlement = max(250_000, clubs[index].finances.wageBudget * 8)
+        guard clubs[index].finances.balance >= settlement else { return false }
+        clubs[index].finances.balance -= settlement
+        clubs[index].manager = "Interim Manager"
+        owner.supporterConfidence = max(0, owner.supporterConfidence - 4)
+        addNews(headline: "\(outgoing) Leaves \(clubs[index].name)", body: "The manager has been relieved of duties. A compensation payment of \(Player.formatCurrency(settlement)) has been made; appoint a successor promptly.", category: .board, sender: "Owner's Office")
+        return true
     }
     
     // MARK: - Existing Club Take-Over Helper
@@ -1917,6 +1959,7 @@ public final class GameState: Codable {
         case matchSettings
         case manager
         case jobOffers
+        case owner
         case europeanCompetitions
         case europeanMatchweek
         case nationalTeams
@@ -1943,6 +1986,7 @@ public final class GameState: Codable {
         try container.encode(matchSettings, forKey: .matchSettings)
         try container.encode(manager, forKey: .manager)
         try container.encode(jobOffers, forKey: .jobOffers)
+        try container.encode(owner, forKey: .owner)
         try container.encode(europeanCompetitions, forKey: .europeanCompetitions)
         try container.encode(europeanMatchweek, forKey: .europeanMatchweek)
         try container.encode(nationalTeams, forKey: .nationalTeams)
@@ -1969,6 +2013,7 @@ public final class GameState: Codable {
         self.matchSettings = try container.decodeIfPresent(MatchSettings.self, forKey: .matchSettings) ?? MatchSettings()
         self.manager = try container.decodeIfPresent(ManagerProfile.self, forKey: .manager) ?? ManagerProfile()
         self.jobOffers = try container.decodeIfPresent([JobOffer].self, forKey: .jobOffers) ?? []
+        self.owner = try container.decodeIfPresent(OwnerProfile.self, forKey: .owner) ?? OwnerProfile()
         self.europeanCompetitions = try container.decodeIfPresent([EuropeanCompetitionState].self, forKey: .europeanCompetitions) ?? []
         self.europeanMatchweek = try container.decodeIfPresent(Int.self, forKey: .europeanMatchweek) ?? 0
         self.nationalTeams = try container.decodeIfPresent([NationalTeam].self, forKey: .nationalTeams) ?? []
