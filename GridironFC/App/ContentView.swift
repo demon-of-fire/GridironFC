@@ -30,12 +30,27 @@ public struct ContentView: View {
                 JobOffersView()
             case .managerProfile:
                 ManagerProfileView()
-            case .dashboard, .squad, .tactics, .standings, .fixtures, .results, .transferHub, .playerSearch, .training, .staff:
+            case .dashboard, .fixtures, .results, .training, .staff:
                 if gameState.gameMode == .createClub {
                     OwnerCareerTabView()
                 } else {
                     InGameTabView(selectedTab: $selectedTab)
                 }
+            case .news:
+                if gameState.gameMode == .createClub {
+                    NewsFeedView()
+                } else {
+                    InGameTabView(selectedTab: $selectedTab)
+                        .onAppear { selectedTab = .news }
+                }
+            case .squad:
+                careerTab(.squad)
+            case .tactics:
+                careerTab(.tactics)
+            case .standings:
+                careerTab(.league)
+            case .transferHub, .playerSearch:
+                careerTab(.transfers)
             case .finances:
                 FinancesView()
             case .matchDay:
@@ -58,13 +73,21 @@ public struct ContentView: View {
                 YouthAcademyView()
             case .international:
                 InternationalHubView()
-            case .news:
-                NewsFeedView()
             case .playerDetail(let playerId):
                 PlayerDetailView(playerId: playerId)
             }
         }
         .dynamicTypeBounds()
+    }
+
+    @ViewBuilder
+    private func careerTab(_ destination: TabDestination) -> some View {
+        if gameState.gameMode == .createClub {
+            OwnerCareerTabView()
+        } else {
+            InGameTabView(selectedTab: $selectedTab)
+                .onAppear { selectedTab = destination }
+        }
     }
 }
 
@@ -371,6 +394,7 @@ public struct ClubCreationView: View {
     @State private var selectedReplaceClubId: UUID?
     @State private var ownerName = "Alex Morgan"
     @State private var clubVision: ClubVision = .sustainable
+    @State private var creationError: String?
     
     private var leagueTwoClubs: [Club] {
         return gameState.clubs.filter { $0.leagueTier == .leagueTwo }
@@ -431,20 +455,30 @@ public struct ClubCreationView: View {
             
             Section {
                 Button(action: {
+                    guard validIdentity else {
+                        creationError = "Enter a club name, a three-letter short name, a stadium, a city, and two six-digit hex colours such as #2D8B4E."
+                        return
+                    }
+                    guard let targetId = selectedReplaceClubId else {
+                        creationError = "Choose a League Two club to replace before launching your career."
+                        return
+                    }
                     if gameState.gameMode == .createClub {
                         gameState.owner = OwnerProfile(name: ownerName.trimmingCharacters(in: .whitespaces).isEmpty ? "Club Owner" : ownerName, vision: clubVision)
                     }
-                    let targetId = selectedReplaceClubId ?? leagueTwoClubs.first?.id ?? UUID()
-                    _ = gameState.createCustomClub(
+                    guard gameState.createCustomClub(
                         name: clubName,
-                        shortName: shortName,
+                        shortName: shortName.trimmingCharacters(in: .whitespaces).uppercased(),
                         stadium: stadiumName,
                         stadiumCapacity: 5000,
                         city: cityName,
                         primaryColor: primaryColor,
                         secondaryColor: secondaryColor,
                         replaceClubId: targetId
-                    )
+                    ) != nil else {
+                        creationError = "That club is no longer available to replace. Please choose another club."
+                        return
+                    }
                     
                     // Assign generated squad to the user's club
                     if let userClub = gameState.userClub {
@@ -462,7 +496,7 @@ public struct ClubCreationView: View {
                         .fontWeight(.bold)
                         .frame(maxWidth: .infinity)
                 }
-                .disabled(clubName.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(!validIdentity || selectedReplaceClubId == nil)
                 .accessibilityLabel("Launch club career")
                 .accessibilityHint("Finalizes club creation and opens your career hub")
             }
@@ -474,6 +508,24 @@ public struct ClubCreationView: View {
                 selectedReplaceClubId = leagueTwoClubs.first?.id
             }
         }
+        .alert("Check Club Details", isPresented: Binding(get: { creationError != nil }, set: { if !$0 { creationError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(creationError ?? "")
+        }
+    }
+
+    private var validIdentity: Bool {
+        !clubName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && shortName.trimmingCharacters(in: .whitespacesAndNewlines).count == 3
+            && !stadiumName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !cityName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && isHexColour(primaryColor)
+            && isHexColour(secondaryColor)
+    }
+
+    private func isHexColour(_ value: String) -> Bool {
+        value.range(of: "^#[0-9A-Fa-f]{6}$", options: .regularExpression) != nil
     }
 }
 
@@ -943,7 +995,90 @@ public struct OwnerCareerTabView: View {
                 Button { gameState.currentScreen = .mainMenu } label: { Image(systemName: "house") }
                     .accessibilityLabel("Main Menu")
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button { gameState.currentScreen = .mailbox } label: {
+                        Label("Board Inbox", systemImage: "tray.full")
+                    }
+                    Button { gameState.currentScreen = .finances } label: {
+                        Label("Finances", systemImage: "banknote")
+                    }
+                    Button { gameState.currentScreen = .news } label: {
+                        Label("Club News", systemImage: "newspaper")
+                    }
+                    Button { gameState.currentScreen = .settings } label: {
+                        Label("Settings & Saves", systemImage: "gearshape")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .accessibilityLabel("Owner tools")
+                .accessibilityHint("Opens the board inbox, finances, news and settings")
+            }
         }
+    }
+}
+
+/// A compact, text-first metric tile. The label is deliberately kept visible so
+/// the board interface never relies on colour or an SF Symbol alone.
+private struct OwnerMetricTile: View {
+    let title: String
+    let value: String
+    let icon: String
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Image(systemName: icon)
+                .foregroundStyle(tint)
+                .font(.headline)
+                .accessibilityHidden(true)
+            Text(value)
+                .font(.headline)
+                .fontWeight(.bold)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
+        .padding(12)
+        .background(Color(UIColor.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title): \(value)")
+    }
+}
+
+private struct ManagerCandidateCard: View {
+    let candidate: ManagerCandidate
+    let appoint: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(candidate.name).fontWeight(.semibold)
+                Spacer()
+                Label("\(candidate.reputation)", systemImage: "star.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text(candidate.style)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            HStack {
+                Label("\(Player.formatCurrency(candidate.wage))/week", systemImage: "banknote")
+                    .font(.caption)
+                Spacer()
+                Button("Appoint", action: appoint)
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(candidate.name), reputation \(candidate.reputation). \(candidate.style). Salary \(Player.spokenCurrency(candidate.wage)) per week.")
+        .accessibilityHint("Use Appoint to offer this candidate the manager role")
     }
 }
 
@@ -955,6 +1090,7 @@ public struct OwnerBoardroomView: View {
             if let club = gameState.userClub {
                 VStack(alignment: .leading, spacing: 16) {
                     ownerHero(club)
+                    ownerStatus(club)
                     Button {
                         gameState.advanceOwnerWeek()
                     } label: {
@@ -973,7 +1109,7 @@ public struct OwnerBoardroomView: View {
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    GroupBox("Board Priorities") {
+                    GroupBox("This Week's Board Priorities") {
                         VStack(alignment: .leading, spacing: 7) {
                             Text("• Protect the club's financial health while building a competitive squad.")
                             Text("• Give your manager the support to deliver \(target(for: club)).")
@@ -987,17 +1123,32 @@ public struct OwnerBoardroomView: View {
     }
 
     private func briefing(_ label: String, _ value: String, _ icon: String) -> some View {
-        HStack { Label(label, systemImage: icon); Spacer(); Text(value).fontWeight(.semibold).multilineTextAlignment(.trailing) }
+        HStack(alignment: .firstTextBaseline) { Label(label, systemImage: icon); Spacer(minLength: 16); Text(value).fontWeight(.semibold).multilineTextAlignment(.trailing) }
     }
     private func ownerHero(_ club: Club) -> some View {
         HStack(spacing: 14) {
             CrestView(club: club, size: 62)
             VStack(alignment: .leading, spacing: 4) {
                 Text("Welcome, \(gameState.owner.name)").font(.title3).fontWeight(.bold)
-                Text("Owner • Season \(gameState.season.year)").foregroundStyle(.secondary)
-                Text("\(gameState.owner.legacyPoints) legacy points").font(.caption).foregroundStyle(.secondary)
+                Text("Owner • Season \(gameState.season.year)").foregroundStyle(.white.opacity(0.9))
+                Text("\(gameState.owner.legacyPoints) legacy points").font(.caption).foregroundStyle(.white.opacity(0.8))
             }; Spacer()
-        }.padding().background(Color(UIColor.secondarySystemGroupedBackground)).clipShape(RoundedRectangle(cornerRadius: 18))
+        }
+        .padding()
+        .background(Color.pitchDarkGreen.gradient)
+        .foregroundStyle(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Owner headquarters. \(club.name). \(gameState.owner.name), owner. Season \(gameState.season.year). \(gameState.owner.legacyPoints) legacy points.")
+    }
+    private func ownerStatus(_ club: Club) -> some View {
+        HStack(spacing: 10) {
+            OwnerMetricTile(title: "Confidence", value: "\(gameState.owner.supporterConfidence)%", icon: "heart.fill", tint: gameState.owner.supporterConfidence >= 60 ? .winGreen : .goldAccent)
+            OwnerMetricTile(title: "Cash", value: Player.formatCurrency(club.finances.balance), icon: "banknote.fill", tint: .pitchGreen)
+            OwnerMetricTile(title: "Manager", value: club.manager == "Interim Manager" ? "Needed" : "Appointed", icon: "person.badge.key.fill", tint: club.manager == "Interim Manager" ? .lossRed : .defColor)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Club health summary")
     }
     private func target(for club: Club) -> String { club.leagueTier.isTopFlight ? "a stable top-half finish" : "a promotion challenge" }
 }
@@ -1020,11 +1171,7 @@ public struct OwnerPeopleView: View {
                 }
                 Section("Manager Shortlist") {
                     ForEach(ManagerCandidate.shortlist) { candidate in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack { Text(candidate.name).fontWeight(.semibold); Spacer(); Text("Rep \(candidate.reputation)").foregroundStyle(.secondary) }
-                            Text(candidate.style).font(.caption).foregroundStyle(.secondary)
-                            HStack { Text("\(Player.formatCurrency(candidate.wage))/wk").font(.caption); Spacer(); Button("Appoint") { appoint(candidate) }.buttonStyle(.borderedProminent) }
-                        }.padding(.vertical, 3)
+                        ManagerCandidateCard(candidate: candidate) { appoint(candidate) }
                     }
                 }
                 Section("Football Department") {
@@ -1034,7 +1181,9 @@ public struct OwnerPeopleView: View {
                             Text(role.displayName).fontWeight(.semibold)
                             Text(team.isEmpty ? "Vacant — \(role.roleDescription)" : team.map { "\($0.name) \(String(repeating: "★", count: $0.quality))" }.joined(separator: " • "))
                                 .font(.caption).foregroundStyle(.secondary)
-                            Button("Hire 3★ \(role.displayName)") { hire(role) }.buttonStyle(.bordered)
+                            Button("Hire 3★ \(role.displayName)") { hire(role) }
+                                .buttonStyle(.bordered)
+                                .accessibilityHint("Makes a three star \(role.displayName) offer")
                         }.padding(.vertical, 2)
                     }
                 }
@@ -1080,7 +1229,13 @@ public struct OwnerFacilitiesView: View {
                     Text("Add roughly 15% capacity to grow matchday income and the club's profile.").font(.caption).foregroundStyle(.secondary)
                     Button("Expand Stadium — \(Player.formatCurrency(club.stadiumExpansionCost))") { expand() }.disabled(club.finances.balance < club.stadiumExpansionCost)
                 }
-                Section("Available Capital") { Text(Player.formatCurrency(club.finances.balance)).font(.title3).fontWeight(.bold) }
+                Section("Available Capital") {
+                    LabeledContent("Cash available", value: Player.formatCurrency(club.finances.balance))
+                    LabeledContent("Transfer allocation", value: Player.formatCurrency(club.finances.transferBudget))
+                    Text("Training ground and academy projects use the transfer allocation. Medical and stadium projects use club cash.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .alert("Capital Project", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) { Button("OK", role: .cancel) {} } message: { Text(message ?? "") }
@@ -1089,7 +1244,9 @@ public struct OwnerFacilitiesView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack { Text(title).fontWeight(.semibold); Spacer(); Text("Level \(level)/5").foregroundStyle(.secondary) }
             Text(detail).font(.caption).foregroundStyle(.secondary)
-            Button(level >= 5 ? "Maximum level" : "Upgrade — \(Player.formatCurrency(cost))") { upgrade(action) }.disabled(level >= 5)
+            Button(level >= 5 ? "Maximum level" : "Upgrade — \(Player.formatCurrency(cost))") { upgrade(action) }
+                .disabled(level >= 5)
+                .accessibilityHint(level >= 5 ? "This facility has reached its maximum level" : "Costs \(Player.spokenCurrency(cost))")
         }.padding(.vertical, 3)
     }
     private func upgrade(_ action: (inout Club) -> Bool) {
@@ -1111,7 +1268,20 @@ public struct OwnerClubView: View {
     public var body: some View {
         List {
             if let club = gameState.userClub {
-                Section("Club Identity") { LabeledContent("City", value: club.city); LabeledContent("Division", value: club.leagueTier.displayName); LabeledContent("Reputation", value: "\(club.reputation)/100") }
+                Section("Club Identity") {
+                    LabeledContent("City", value: club.city)
+                    LabeledContent("Division", value: club.leagueTier.displayName)
+                    LabeledContent("Reputation", value: "\(club.reputation)/100")
+                    Picker("Long-term vision", selection: Binding(get: { gameState.owner.vision }, set: { newVision in
+                        gameState.owner.vision = newVision
+                        try? SaveManager.shared.autoSave(gameState: gameState)
+                    })) {
+                        ForEach(ClubVision.allCases) { vision in
+                            Text(vision.rawValue).tag(vision)
+                        }
+                    }
+                    Text(gameState.owner.vision.summary).font(.caption).foregroundStyle(.secondary)
+                }
                 Section("Operating Model") { LabeledContent("Squad", value: "\(club.players.count) senior players"); LabeledContent("Staff", value: "\(club.staff.count) employees"); LabeledContent("Weekly wage bill", value: Player.formatCurrency(club.totalWeeklyWageBill)) }
                 Section("Owner Note") { Text("This is an owner-only career. The manager handles the football; you shape the people, money, facilities and long-term identity of \(club.name).") }
             }
@@ -1124,6 +1294,9 @@ public struct DashboardView: View {
     public var body: some View {
         ScrollView {
             VStack(spacing: 20) {
+                if !gameState.isUnemployed, let club = gameState.userClub {
+                    managerHQ(club)
+                }
                 // Unemployed: surface job offers as the primary action.
                 if gameState.isUnemployed {
                     Button(action: {
@@ -1392,6 +1565,34 @@ public struct DashboardView: View {
     private var isMatchDay: Bool {
         guard let fixture = gameState.nextUserFixture else { return false }
         return fixture.date == gameState.season.currentDate
+    }
+
+    private func managerHQ(_ club: Club) -> some View {
+        HStack(spacing: 14) {
+            CrestView(club: club, size: 52)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Manager HQ")
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .textCase(.uppercase)
+                    .foregroundStyle(.white.opacity(0.8))
+                Text(gameState.manager.fullName)
+                    .font(.title3)
+                    .fontWeight(.bold)
+                Text("\(club.name) · \(club.leagueTier.displayName) · Season \(gameState.season.year)")
+                    .font(.caption)
+                    .lineLimit(2)
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.pitchDarkGreen.gradient)
+        .foregroundStyle(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Manager headquarters. \(gameState.manager.fullName), manager of \(club.name), \(club.leagueTier.displayName), season \(gameState.season.year).")
     }
 }
 
@@ -3080,6 +3281,14 @@ public struct NewsFeedView: View {
         }
         .navigationTitle("News")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if gameState.currentScreen == .news {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { gameState.currentScreen = .dashboard }
+                        .accessibilityLabel("Close news and return to club home")
+                }
+            }
+        }
     }
 
     @ViewBuilder

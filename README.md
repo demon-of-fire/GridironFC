@@ -99,6 +99,20 @@ GridironFC/
    ```
 4. Select an iOS 17.0+ Simulator or physical device and press **Cmd + R** to run.
 
+### Publishing and retrieving a release IPA
+
+Push releases through the included PowerShell helper from the repository root:
+
+```powershell
+.\tools\Push-And-FetchIPA.ps1
+```
+
+It pushes `main`, waits for the matching **Build iOS App** GitHub Actions run,
+fails loudly if the workflow does not succeed, and downloads the published
+`GridironFC.ipa` to the repository root. The download is checked against the
+release's SHA-256 manifest and verified to contain the expected iOS app payload.
+`GridironFC.ipa` is intentionally gitignored.
+
 ---
 
 ## 🚀 Continuous Integration (GitHub Actions)
@@ -107,6 +121,9 @@ A GitHub Actions workflow is preconfigured in `.github/workflows/build.yml`:
 - Triggered automatically on push to `main` or via **Run workflow** manual dispatch.
 - Runs on GitHub's `macos-14` runner.
 - Generates the Xcode project with XcodeGen, executes `xcodebuild archive`, packages `GridironFC.ipa`, and uploads it as an artifact.
+- Publishes both the IPA and a `release-manifest.json` containing the build
+  version, commit SHA and IPA checksum, so the local retrieval helper can
+  verify that the release asset is complete and unmodified.
 - Supports Apple Developer code signing secrets (`BUILD_CERTIFICATE_BASE64`, `BUILD_PROVISION_PROFILE_BASE64`, `KEYCHAIN_PASSWORD`) or generates unsigned builds for ad-hoc testing.
 
 ---

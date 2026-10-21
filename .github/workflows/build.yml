@@ -149,13 +149,17 @@ jobs:
           zip -r GridironFC.ipa Payload
           mkdir -p "$GITHUB_WORKSPACE/build-output"
           mv GridironFC.ipa "$GITHUB_WORKSPACE/build-output/"
+          SHA256=$(shasum -a 256 "$GITHUB_WORKSPACE/build-output/GridironFC.ipa" | awk '{print $1}')
+          printf '{\n  "version": "%s",\n  "commit": "%s",\n  "ipa": "GridironFC.ipa",\n  "sha256": "%s"\n}\n' \
+            "${{ steps.version.outputs.version }}" "$GITHUB_SHA" "$SHA256" \
+            > "$GITHUB_WORKSPACE/build-output/release-manifest.json"
           ls -la "$GITHUB_WORKSPACE/build-output/"
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: GridironFC-iOS-IPA
-          path: build-output/GridironFC.ipa
+          path: build-output/
           retention-days: 14
 
   release:
@@ -219,11 +223,12 @@ jobs:
           } > "$NOTES_FILE"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists; uploading asset."
-            gh release upload "$TAG" "build-output/GridironFC.ipa" --clobber
+            echo "Release $TAG already exists; uploading release assets."
+            gh release upload "$TAG" "build-output/GridironFC.ipa" "build-output/release-manifest.json" --clobber
           else
             gh release create "$TAG" \
               --title "$TITLE" \
               --notes-file "$NOTES_FILE" \
-              "build-output/GridironFC.ipa"
+              "build-output/GridironFC.ipa" \
+              "build-output/release-manifest.json"
           fi

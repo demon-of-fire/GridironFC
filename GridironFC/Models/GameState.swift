@@ -1250,9 +1250,9 @@ public final class GameState: Codable {
         primaryColor: String,
         secondaryColor: String,
         replaceClubId: UUID
-    ) -> Club {
+    ) -> Club? {
         guard let replacedIdx = clubs.firstIndex(where: { $0.id == replaceClubId }) else {
-            fatalError("Target club to replace was not found in world state.")
+            return nil
         }
         
         let replacedClub = clubs[replacedIdx]

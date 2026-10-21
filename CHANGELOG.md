@@ -50,6 +50,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Verified release delivery** — each GitHub release now contains a signed
+  checksum manifest alongside the IPA. `tools/Push-And-FetchIPA.ps1` waits for
+  the matching release workflow, validates the downloaded IPA payload and
+  checksum, then saves it as `GridironFC.ipa` at the local project root.
+- **Role-first career hubs** — manager careers now open with a compact Manager
+  HQ and owner careers gain a full Boardroom HQ, club-health metrics, board
+  inbox/tools, clearer capital-project context, and an editable club vision.
+- **Decision-ready ownership UI** — manager candidates are now presented as
+  readable cards with reputation, style and weekly salary announced to
+  VoiceOver; appointments and staff offers include explicit action hints.
+- **Reliable manager shortcuts** — dashboard links for News, Squad, Tactics,
+  League and Transfers now select the intended destination instead of falling
+  back to Home.
+- **Safer club founding** — club creation validates all required identity and
+  colour fields and handles a missing replacement club without crashing.
+
 - **Realistic, multi-week transfer negotiations** — bids are no longer resolved
   instantly. Selling clubs respond over the following weeks, either accepting,
   rejecting, or issuing a **counter-offer** with a specific asking price. Free
