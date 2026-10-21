@@ -30,7 +30,7 @@ public struct ContentView: View {
                 JobOffersView()
             case .managerProfile:
                 ManagerProfileView()
-            case .dashboard, .fixtures, .results, .training, .staff:
+            case .dashboard, .fixtures, .results, .staff:
                 if gameState.gameMode == .createClub {
                     OwnerCareerTabView()
                 } else {
@@ -51,6 +51,12 @@ public struct ContentView: View {
                 careerTab(.league)
             case .transferHub, .playerSearch:
                 careerTab(.transfers)
+            case .training:
+                if gameState.gameMode == .createClub {
+                    OwnerCareerTabView()
+                } else {
+                    TrainingView()
+                }
             case .finances:
                 FinancesView()
             case .matchDay:
@@ -1084,6 +1090,7 @@ private struct ManagerCandidateCard: View {
 
 public struct OwnerBoardroomView: View {
     @Environment(GameState.self) private var gameState
+    @State private var decisionMessage: String?
 
     public var body: some View {
         ScrollView {
@@ -1116,10 +1123,30 @@ public struct OwnerBoardroomView: View {
                             Text("• Review appointments and infrastructure after each run of fixtures.")
                         }.font(.subheadline).frame(maxWidth: .infinity, alignment: .leading)
                     }
+
+                    GroupBox("Capital Decisions") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Spend legacy points on a board-level intervention. Your manager remains responsible for football decisions.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            ForEach(OwnerInvestment.allCases) { investment in
+                                OwnerInvestmentCard(
+                                    investment: investment,
+                                    availablePoints: gameState.owner.legacyPoints,
+                                    action: { approve(investment) }
+                                )
+                            }
+                        }
+                    }
                 }.padding()
             }
         }
         .background(Color(UIColor.systemGroupedBackground))
+        .alert("Board Decision", isPresented: Binding(get: { decisionMessage != nil }, set: { if !$0 { decisionMessage = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(decisionMessage ?? "")
+        }
     }
 
     private func briefing(_ label: String, _ value: String, _ icon: String) -> some View {
@@ -1151,6 +1178,36 @@ public struct OwnerBoardroomView: View {
         .accessibilityLabel("Club health summary")
     }
     private func target(for club: Club) -> String { club.leagueTier.isTopFlight ? "a stable top-half finish" : "a promotion challenge" }
+    private func approve(_ investment: OwnerInvestment) {
+        let approved = gameState.approveOwnerInvestment(investment)
+        decisionMessage = approved ? "\(investment.title) approved. \(investment.detail)" : "You need \(investment.cost) legacy points to approve this decision."
+    }
+}
+
+private struct OwnerInvestmentCard: View {
+    let investment: OwnerInvestment
+    let availablePoints: Int
+    let action: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: investment == .recruitment ? "sterlingsign.circle.fill" : investment == .facilities ? "building.2.fill" : "heart.fill")
+                .foregroundStyle(Color.accentColor)
+                .font(.title3)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(investment.title).fontWeight(.semibold)
+                Text(investment.detail).font(.caption).foregroundStyle(.secondary)
+                Text("Cost: \(investment.cost) legacy points").font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Button("Approve", action: action)
+                .buttonStyle(.bordered)
+                .disabled(availablePoints < investment.cost)
+                .accessibilityHint(availablePoints < investment.cost ? "You need \(investment.cost - availablePoints) more legacy points" : investment.detail)
+        }
+        .accessibilityElement(children: .contain)
+    }
 }
 
 public struct OwnerPeopleView: View {
@@ -1296,6 +1353,8 @@ public struct DashboardView: View {
             VStack(spacing: 20) {
                 if !gameState.isUnemployed, let club = gameState.userClub {
                     managerHQ(club)
+                    managerReadiness(club)
+                    managerOperations
                 }
                 // Unemployed: surface job offers as the primary action.
                 if gameState.isUnemployed {
@@ -1593,6 +1652,71 @@ public struct DashboardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 20))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Manager headquarters. \(gameState.manager.fullName), manager of \(club.name), \(club.leagueTier.displayName), season \(gameState.season.year).")
+    }
+
+    private func managerReadiness(_ club: Club) -> some View {
+        let starters = club.startingXIPlayers
+        let available = starters.filter { $0.injury == nil && $0.suspendedMatches == 0 }
+        let averageFitness = starters.isEmpty ? 0 : Int(starters.map(\.matchFitness).reduce(0, +) / Double(starters.count))
+        let averageSharpness = starters.isEmpty ? 0 : Int(starters.map(\.sharpness).reduce(0, +) / Double(starters.count))
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Match Readiness").font(.headline)
+            HStack(spacing: 10) {
+                ManagerReadinessMetric(value: "\(available.count)/\(starters.count)", label: "Available", tint: available.count == starters.count ? .winGreen : .goldAccent)
+                ManagerReadinessMetric(value: "\(averageFitness)%", label: "Fitness", tint: .defColor)
+                ManagerReadinessMetric(value: "\(averageSharpness)%", label: "Sharpness", tint: .pitchGreen)
+            }
+        }
+        .padding()
+        .background(Color(UIColor.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Match readiness. \(available.count) of \(starters.count) starters available. Average fitness \(averageFitness) percent. Average sharpness \(averageSharpness) percent.")
+    }
+
+    private var managerOperations: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Manager Operations").font(.headline)
+            HStack(spacing: 10) {
+                managerAction("Squad", icon: "person.3.fill", destination: .squad)
+                managerAction("Tactics", icon: "list.bullet.clipboard.fill", destination: .tactics)
+            }
+            HStack(spacing: 10) {
+                managerAction("Training", icon: "figure.run", destination: .training)
+                managerAction("Transfers", icon: "arrow.left.arrow.right", destination: .transferHub)
+            }
+        }
+    }
+
+    private func managerAction(_ title: String, icon: String, destination: AppScreen) -> some View {
+        Button {
+            gameState.currentScreen = destination
+        } label: {
+            Label(title, systemImage: icon)
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .padding(.horizontal, 8)
+                .background(Color(UIColor.secondarySystemGroupedBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens \(title.lowercased()) management")
+    }
+}
+
+private struct ManagerReadinessMetric: View {
+    let value: String
+    let label: String
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(value).font(.headline).foregroundStyle(tint)
+            Text(label).font(.caption).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label) \(value)")
     }
 }
 
@@ -1910,6 +2034,95 @@ public struct TacticsView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Training Ground
+
+public struct TrainingView: View {
+    @Environment(GameState.self) private var gameState
+    @State private var message: String?
+
+    private var isAvailable: Bool {
+        gameState.lastTrainingWeek != gameState.season.currentWeek
+    }
+
+    public var body: some View {
+        List {
+            if let club = gameState.userClub {
+                Section("This Week's Session") {
+                    HStack {
+                        Label(isAvailable ? "Session available" : "Session complete", systemImage: isAvailable ? "checkmark.circle.fill" : "lock.fill")
+                            .foregroundStyle(isAvailable ? .winGreen : .secondary)
+                        Spacer()
+                        Text("Week \(gameState.season.currentWeek)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(isAvailable
+                         ? "Choose one focused session. The choice matters, and you can run only one per matchweek."
+                         : "Your staff have completed this week’s dedicated session. Advance to the next week to plan another.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Training Focus") {
+                    ForEach(TrainingFocus.allCases) { focus in
+                        Button { run(focus) } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: focus.icon)
+                                    .frame(width: 28)
+                                    .foregroundStyle(Color.accentColor)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(focus.title).fontWeight(.semibold).foregroundStyle(.primary)
+                                    Text(focus.detail).font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .disabled(!isAvailable)
+                        .accessibilityLabel("\(focus.title) training")
+                        .accessibilityHint(isAvailable ? focus.detail : "Training is already complete for this matchweek")
+                    }
+                }
+
+                Section("Squad Pulse") {
+                    let healthy = club.players.filter { $0.injury == nil }
+                    LabeledContent("Healthy players", value: "\(healthy.count) / \(club.players.count)")
+                    LabeledContent("Average fitness", value: "\(average(healthy.map(\.matchFitness)))%")
+                    LabeledContent("Average sharpness", value: "\(average(healthy.map(\.sharpness)))%")
+                }
+            } else {
+                ContentUnavailableView("No Squad", systemImage: "figure.run", description: Text("Take charge of a club before planning training."))
+            }
+        }
+        .navigationTitle("Training Ground")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") { gameState.currentScreen = .dashboard }
+                    .accessibilityLabel("Close training and return to manager home")
+            }
+        }
+        .alert("Training Report", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(message ?? "")
+        }
+    }
+
+    private func average(_ values: [Double]) -> Int {
+        guard !values.isEmpty else { return 0 }
+        return Int(values.reduce(0, +) / Double(values.count))
+    }
+
+    private func run(_ focus: TrainingFocus) {
+        let succeeded = gameState.runTrainingSession(focus)
+        message = succeeded ? "\(focus.title) complete. \(focus.detail)" : "A dedicated session has already been completed this matchweek."
     }
 }
 

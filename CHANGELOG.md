@@ -50,6 +50,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Manager command centre** — Home now surfaces live starting-XI readiness,
+  direct operational controls and a dedicated Training Ground. One focused
+  session per matchweek lets managers trade between fitness, sharpness, morale
+  and balanced preparation.
+- **Meaningful owner interventions** — legacy points can now fund recruitment,
+  infrastructure or supporter initiatives, with each board decision changing
+  club resources, confidence or reputation without taking football decisions
+  away from the appointed manager.
 - **Verified release delivery** — each GitHub release now contains a signed
   checksum manifest alongside the IPA. `tools/Push-And-FetchIPA.ps1` waits for
   the matching release workflow, validates the downloaded IPA payload and

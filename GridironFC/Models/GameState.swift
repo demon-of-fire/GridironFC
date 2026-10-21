@@ -98,6 +98,8 @@ public final class GameState: Codable {
     // Ownership Career. This remains independent of the manager profile so an
     // owner never becomes the person selecting the XI.
     public var owner: OwnerProfile
+    /// Ensures a manager can run only one dedicated training session per week.
+    public var lastTrainingWeek: Int?
     
     // European club competitions (Champions League, Europa League, Conference League)
     public var europeanCompetitions: [EuropeanCompetitionState]
@@ -131,6 +133,7 @@ public final class GameState: Codable {
         manager: ManagerProfile = ManagerProfile(),
         jobOffers: [JobOffer] = [],
         owner: OwnerProfile = OwnerProfile(),
+        lastTrainingWeek: Int? = nil,
         europeanCompetitions: [EuropeanCompetitionState] = [],
         europeanMatchweek: Int = 0,
         nationalTeams: [NationalTeam] = [],
@@ -155,6 +158,7 @@ public final class GameState: Codable {
         self.manager = manager
         self.jobOffers = jobOffers
         self.owner = owner
+        self.lastTrainingWeek = lastTrainingWeek
         self.europeanCompetitions = europeanCompetitions
         self.europeanMatchweek = europeanMatchweek
         self.nationalTeams = nationalTeams
@@ -1320,6 +1324,71 @@ public final class GameState: Codable {
         try? SaveManager.shared.autoSave(gameState: self)
     }
 
+    /// Allows owners to shape resources and public sentiment without selecting
+    /// the team or changing match tactics.
+    @discardableResult
+    public func approveOwnerInvestment(_ investment: OwnerInvestment) -> Bool {
+        guard gameMode == .createClub,
+              owner.legacyPoints >= investment.cost,
+              let index = clubs.firstIndex(where: { $0.isUserClub }) else { return false }
+
+        owner.legacyPoints -= investment.cost
+        switch investment {
+        case .recruitment:
+            clubs[index].finances.transferBudget += 650_000
+            owner.supporterConfidence = min(100, owner.supporterConfidence + 1)
+        case .facilities:
+            clubs[index].finances.balance += 450_000
+            owner.supporterConfidence = min(100, owner.supporterConfidence + 2)
+        case .community:
+            owner.supporterConfidence = min(100, owner.supporterConfidence + 6)
+            clubs[index].reputation = min(100, clubs[index].reputation + 1)
+        }
+        addNews(
+            headline: "Board Approves \(investment.title)",
+            body: investment.detail,
+            category: .board,
+            sender: "Owner's Office"
+        )
+        try? SaveManager.shared.autoSave(gameState: self)
+        return true
+    }
+
+    /// Runs one intentional training session per matchweek. Dedicated sessions
+    /// trade one form of readiness for another, so preparation remains a choice.
+    @discardableResult
+    public func runTrainingSession(_ focus: TrainingFocus) -> Bool {
+        guard gameMode != .createClub,
+              lastTrainingWeek != season.currentWeek,
+              let clubIndex = clubs.firstIndex(where: { $0.isUserClub }) else { return false }
+
+        for playerIndex in clubs[clubIndex].players.indices where clubs[clubIndex].players[playerIndex].injury == nil {
+            switch focus {
+            case .balanced:
+                clubs[clubIndex].players[playerIndex].recoverFitness(amount: 3)
+                clubs[clubIndex].players[playerIndex].sharpness = min(100, clubs[clubIndex].players[playerIndex].sharpness + 3)
+            case .fitness:
+                clubs[clubIndex].players[playerIndex].recoverFitness(amount: 7)
+                clubs[clubIndex].players[playerIndex].sharpness = min(100, clubs[clubIndex].players[playerIndex].sharpness + 1)
+            case .sharpness:
+                clubs[clubIndex].players[playerIndex].consumeFitness(amount: 2)
+                clubs[clubIndex].players[playerIndex].sharpness = min(100, clubs[clubIndex].players[playerIndex].sharpness + 7)
+            case .morale:
+                clubs[clubIndex].players[playerIndex].boostMorale()
+                clubs[clubIndex].players[playerIndex].recoverFitness(amount: 1)
+            }
+        }
+        lastTrainingWeek = season.currentWeek
+        addNews(
+            headline: "\(focus.title) Session Complete",
+            body: "The first team completed a focused \(focus.title.lowercased()) session ahead of the next fixture.",
+            category: .board,
+            sender: "Coaching Staff"
+        )
+        try? SaveManager.shared.autoSave(gameState: self)
+        return true
+    }
+
     public func appointManager(_ candidate: ManagerCandidate) -> Bool {
         guard gameMode == .createClub,
               let index = clubs.firstIndex(where: { $0.isUserClub }),
@@ -1960,6 +2029,7 @@ public final class GameState: Codable {
         case manager
         case jobOffers
         case owner
+        case lastTrainingWeek
         case europeanCompetitions
         case europeanMatchweek
         case nationalTeams
@@ -1987,6 +2057,7 @@ public final class GameState: Codable {
         try container.encode(manager, forKey: .manager)
         try container.encode(jobOffers, forKey: .jobOffers)
         try container.encode(owner, forKey: .owner)
+        try container.encodeIfPresent(lastTrainingWeek, forKey: .lastTrainingWeek)
         try container.encode(europeanCompetitions, forKey: .europeanCompetitions)
         try container.encode(europeanMatchweek, forKey: .europeanMatchweek)
         try container.encode(nationalTeams, forKey: .nationalTeams)
@@ -2014,6 +2085,7 @@ public final class GameState: Codable {
         self.manager = try container.decodeIfPresent(ManagerProfile.self, forKey: .manager) ?? ManagerProfile()
         self.jobOffers = try container.decodeIfPresent([JobOffer].self, forKey: .jobOffers) ?? []
         self.owner = try container.decodeIfPresent(OwnerProfile.self, forKey: .owner) ?? OwnerProfile()
+        self.lastTrainingWeek = try container.decodeIfPresent(Int.self, forKey: .lastTrainingWeek)
         self.europeanCompetitions = try container.decodeIfPresent([EuropeanCompetitionState].self, forKey: .europeanCompetitions) ?? []
         self.europeanMatchweek = try container.decodeIfPresent(Int.self, forKey: .europeanMatchweek) ?? 0
         self.nationalTeams = try container.decodeIfPresent([NationalTeam].self, forKey: .nationalTeams) ?? []

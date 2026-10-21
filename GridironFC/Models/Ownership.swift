@@ -39,6 +39,63 @@ public struct OwnerProfile: Codable, Hashable {
     }
 }
 
+/// One-off board interventions funded by legacy points. They give an owner a
+/// concrete way to steer the club without taking over the manager's role.
+public enum OwnerInvestment: String, CaseIterable, Identifiable, Hashable {
+    case recruitment
+    case facilities
+    case community
+
+    public var id: String { rawValue }
+    public var title: String {
+        switch self {
+        case .recruitment: return "Recruitment Injection"
+        case .facilities: return "Infrastructure Grant"
+        case .community: return "Supporter Initiative"
+        }
+    }
+    public var cost: Int {
+        switch self {
+        case .recruitment: return 8
+        case .facilities: return 6
+        case .community: return 4
+        }
+    }
+    public var detail: String {
+        switch self {
+        case .recruitment: return "Adds £650K to the transfer allocation for your manager."
+        case .facilities: return "Adds £450K club cash for medical or stadium projects."
+        case .community: return "Builds supporter confidence and raises the club profile."
+        }
+    }
+}
+
+public enum TrainingFocus: String, CaseIterable, Identifiable, Hashable {
+    case balanced
+    case fitness
+    case sharpness
+    case morale
+
+    public var id: String { rawValue }
+    public var title: String { rawValue.capitalized }
+    public var icon: String {
+        switch self {
+        case .balanced: return "equal.circle.fill"
+        case .fitness: return "figure.run"
+        case .sharpness: return "scope"
+        case .morale: return "person.2.fill"
+        }
+    }
+    public var detail: String {
+        switch self {
+        case .balanced: return "A small fitness and sharpness lift across the squad."
+        case .fitness: return "Prioritise recovery for a fresher matchday squad."
+        case .sharpness: return "Sharpen execution, with a small fitness trade-off."
+        case .morale: return "Build belief and cohesion across the healthy squad."
+        }
+    }
+}
+
 public struct ManagerCandidate: Identifiable, Hashable {
     public let id = UUID()
     public let name: String
