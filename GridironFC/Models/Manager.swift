@@ -225,6 +225,11 @@ public struct ManagerSeasonRecord: Codable, Hashable, Identifiable {
     public var finalPosition: Int
     /// Trophies or notable achievements, e.g. "Premier League Champions".
     public var honours: [String]
+    /// Points per game for a quick form read.
+    public var pointsPerGame: Double {
+        guard played > 0 else { return 0 }
+        return Double(won * 3 + drawn) / Double(played)
+    }
 
     public init(
         id: UUID = UUID(),
@@ -253,5 +258,139 @@ public struct ManagerSeasonRecord: Codable, Hashable, Identifiable {
     public var winPercentage: Double {
         guard played > 0 else { return 0 }
         return Double(won) / Double(played) * 100.0
+    }
+}
+
+// MARK: - Board Expectations & Job Security
+
+/// The board's stated objective for a manager this season.
+public enum BoardExpectation: String, Codable, CaseIterable, Hashable {
+    case stayUp = "Avoid Relegation"
+    case midTable = "Consolidate in Mid-Table"
+    case topHalf = "Finish in the Top Half"
+    case europe = "Qualify for European Competition"
+    case titleChallenge = "Challenge for the Title"
+    case immediatePromotion = "Secure Promotion"
+    case promotionChallenge = "Push for Promotion"
+
+    public var minimumPosition: Int {
+        switch self {
+        case .stayUp: return 17  // 18th and below triggers concern in lower leagues; logic varies by size
+        case .midTable: return 12
+        case .topHalf: return 9
+        case .europe: return 7
+        case .titleChallenge: return 3
+        case .immediatePromotion: return 2
+        case .promotionChallenge: return 6
+        }
+    }
+
+    public var importance: Int {
+        switch self {
+        case .stayUp: return 95
+        case .midTable: return 70
+        case .topHalf: return 80
+        case .europe: return 90
+        case .titleChallenge: return 95
+        case .immediatePromotion: return 95
+        case .promotionChallenge: return 80
+        }
+    }
+}
+
+/// A manager's security of tenure, driven by board expectations.
+public struct JobSecurity: Codable, Hashable {
+    public var boardConfidence: Int  // 0-100
+    public var expectation: BoardExpectation
+    public var gamesWithoutWin: Int
+    public var underperformingWeeks: Int
+
+    public init(boardConfidence: Int = 70, expectation: BoardExpectation = .midTable, gamesWithoutWin: Int = 0, underperformingWeeks: Int = 0) {
+        self.boardConfidence = max(0, min(100, boardConfidence))
+        self.expectation = expectation
+        self.gamesWithoutWin = max(0, gamesWithoutWin)
+        self.underperformingWeeks = max(0, underperformingWeeks)
+    }
+
+    public var status: String {
+        if boardConfidence >= 80 { return "Secure" }
+        if boardConfidence >= 60 { return "Stable" }
+        if boardConfidence >= 40 { return "Under Pressure" }
+        if boardConfidence >= 25 { return "Perilous" }
+        return "Job On The Line"
+    }
+
+    public var statusColor: String {
+        if boardConfidence >= 60 { return "green" }
+        if boardConfidence >= 40 { return "orange" }
+        return "red"
+    }
+}
+
+// MARK: - Man Management
+
+public enum TeamTalkStyle: String, Codable, CaseIterable, Identifiable, Hashable {
+    case calm = "Calm & Rational"
+    case firedUp = "Fired Up"
+    case rally = "Rally The Troops"
+    case demand = "Demand More"
+    case protect = "Protect The Squad"
+
+    public var id: String { rawValue }
+
+    public var effectSummary: String {
+        switch self {
+        case .calm: return "Steady nerves, keeps spirits level"
+        case .firedUp: return "Big morale boost, risks a bit of tension"
+        case .rally: return "Lifts underdogs, boosts togetherness"
+        case .demand: return "Sharpens focus, can rattle fragile players"
+        case .protect: return "Reassures squad after criticism, builds loyalty"
+        }
+    }
+}
+
+// MARK: - Owner Budget & Sponsorship
+
+public enum SponsorshipTier: String, Codable, CaseIterable, Hashable {
+    case local = "Local Business"
+    case regional = "Regional Brand"
+    case national = "National Sponsor"
+    case global = "Global Partner"
+
+    public var baseIncome: Int {
+        switch self {
+        case .local: return 1_200_000
+        case .regional: return 3_500_000
+        case .national: return 8_000_000
+        case .global: return 18_000_000
+        }
+    }
+}
+
+public struct SponsorshipDeal: Codable, Hashable, Identifiable {
+    public var id: UUID
+    public var sponsorName: String
+    public var tier: SponsorshipTier
+    public var annualValue: Int
+    public var yearsRemaining: Int
+    public var performanceBonus: Int
+
+    public init(id: UUID = UUID(), sponsorName: String, tier: SponsorshipTier, annualValue: Int, yearsRemaining: Int = 3, performanceBonus: Int = 0) {
+        self.id = id
+        self.sponsorName = sponsorName
+        self.tier = tier
+        self.annualValue = annualValue
+        self.yearsRemaining = yearsRemaining
+        self.performanceBonus = performanceBonus
+    }
+}
+
+public struct BudgetAllocation: Codable, Hashable {
+    public var transferBudgetPercent: Int  // 0-100
+    public var wageBudgetPercent: Int
+
+    public init(transferBudgetPercent: Int = 65, wageBudgetPercent: Int = 35) {
+        self.transferBudgetPercent = max(0, min(100, transferBudgetPercent))
+        self.wageBudgetPercent = max(0, min(100, wageBudgetPercent))
     }
 }

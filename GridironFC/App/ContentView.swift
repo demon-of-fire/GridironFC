@@ -1340,6 +1340,34 @@ public struct OwnerClubView: View {
                     Text(gameState.owner.vision.summary).font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Operating Model") { LabeledContent("Squad", value: "\(club.players.count) senior players"); LabeledContent("Staff", value: "\(club.staff.count) employees"); LabeledContent("Weekly wage bill", value: Player.formatCurrency(club.totalWeeklyWageBill)) }
+                Section("Budget Direction") {
+                    Text("Transfer allocation: \(gameState.owner.budgetAllocation.transferBudgetPercent)%")
+                    Slider(value: Binding(
+                        get: { Double(gameState.owner.budgetAllocation.transferBudgetPercent) },
+                        set: { _ = gameState.setOwnerBudgetAllocation(transferPercent: Int($0.rounded())) }
+                    ), in: 20...80, step: 5)
+                    .accessibilityLabel("Transfer budget allocation")
+                    .accessibilityValue("\(gameState.owner.budgetAllocation.transferBudgetPercent) percent")
+                    .accessibilityHint("Adjusts the board's balance between transfer and wage investment")
+                    LabeledContent("Wage allocation", value: "\(gameState.owner.budgetAllocation.wageBudgetPercent)%")
+                }
+                Section("Commercial Partners") {
+                    if gameState.owner.sponsorshipDeals.isEmpty {
+                        Text("No commercial partners signed yet.").foregroundStyle(.secondary)
+                    } else {
+                        ForEach(gameState.owner.sponsorshipDeals) { deal in
+                            LabeledContent(deal.sponsorName, value: "\(Player.formatCurrency(deal.annualValue))/yr")
+                                .accessibilityLabel("\(deal.sponsorName), \(Player.spokenCurrency(deal.annualValue)) per year, \(deal.yearsRemaining) years remaining")
+                        }
+                    }
+                    Menu("Sign Commercial Partner") {
+                        ForEach(SponsorshipTier.allCases, id: \.self) { tier in
+                            Button(tier.rawValue) { _ = gameState.signSponsorshipDeal(tier) }
+                        }
+                    }
+                    .disabled(gameState.owner.sponsorshipDeals.count >= 3)
+                    .accessibilityHint("Signs a sponsorship deal based on club reputation. Maximum three partners.")
+                }
                 Section("Owner Note") { Text("This is an owner-only career. The manager handles the football; you shape the people, money, facilities and long-term identity of \(club.name).") }
             }
         }
@@ -1666,12 +1694,20 @@ public struct DashboardView: View {
                 ManagerReadinessMetric(value: "\(averageFitness)%", label: "Fitness", tint: .defColor)
                 ManagerReadinessMetric(value: "\(averageSharpness)%", label: "Sharpness", tint: .pitchGreen)
             }
+            Divider()
+            HStack {
+                Label("Board: \(gameState.jobSecurity.status)", systemImage: "building.columns.fill")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text("\(gameState.jobSecurity.boardConfidence)%")
+                    .font(.subheadline.monospacedDigit())
+            }
         }
         .padding()
         .background(Color(UIColor.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 18))
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Match readiness. \(available.count) of \(starters.count) starters available. Average fitness \(averageFitness) percent. Average sharpness \(averageSharpness) percent.")
+        .accessibilityLabel("Match readiness. \(available.count) of \(starters.count) starters available. Average fitness \(averageFitness) percent. Average sharpness \(averageSharpness) percent. Board confidence \(gameState.jobSecurity.boardConfidence) percent, \(gameState.jobSecurity.status).")
     }
 
     private var managerOperations: some View {
@@ -2087,6 +2123,31 @@ public struct TrainingView: View {
                         .disabled(!isAvailable)
                         .accessibilityLabel("\(focus.title) training")
                         .accessibilityHint(isAvailable ? focus.detail : "Training is already complete for this matchweek")
+                    }
+                }
+
+                Section("Pre-Match Team Talk") {
+                    Text("Choose one message for the next match. It applies once when the match begins.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ForEach(TeamTalkStyle.allCases) { style in
+                        Button {
+                            _ = gameState.chooseTeamTalk(style)
+                            message = "\(style.rawValue) selected. \(style.effectSummary)"
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(style.rawValue).fontWeight(gameState.teamTalk == style ? .bold : .regular)
+                                    Text(style.effectSummary).font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if gameState.teamTalk == style {
+                                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor)
+                                }
+                            }
+                        }
+                        .accessibilityLabel("\(style.rawValue) team talk")
+                        .accessibilityHint(style.effectSummary)
                     }
                 }
 

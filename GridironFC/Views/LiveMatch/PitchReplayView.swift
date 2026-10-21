@@ -37,7 +37,7 @@ public struct PitchReplayView: View {
                 .stroke(Color.white.opacity(0.25), lineWidth: 2)
         )
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Match pitch replay, minute \(minute)")
+        .accessibilityLabel("Match pitch replay, minute \(minute). Visual pitch only; use the live commentary list below for each match event.")
     }
     
     // MARK: - Pitch Drawing
@@ -345,6 +345,7 @@ public struct LiveMatchView: View {
         if !didSimulate {
             if !fixture.isPlayed,
                let idx = gameState.season.fixtures.firstIndex(where: { $0.id == fixture.id }) {
+                gameState.applyTeamTalkIfNeeded()
                 gameState.simulateMatch(fixture: &gameState.season.fixtures[idx])
             }
             didSimulate = true

@@ -100,6 +100,11 @@ public final class GameState: Codable {
     public var owner: OwnerProfile
     /// Ensures a manager can run only one dedicated training session per week.
     public var lastTrainingWeek: Int?
+    /// Board expectations and job security for the manager career.
+    public var jobSecurity: JobSecurity
+    /// This week's team talk, applied once before/during matchday preparation.
+    public var teamTalk: TeamTalkStyle?
+    public var teamTalkAppliedWeek: Int?
     
     // European club competitions (Champions League, Europa League, Conference League)
     public var europeanCompetitions: [EuropeanCompetitionState]
@@ -134,6 +139,9 @@ public final class GameState: Codable {
         jobOffers: [JobOffer] = [],
         owner: OwnerProfile = OwnerProfile(),
         lastTrainingWeek: Int? = nil,
+        jobSecurity: JobSecurity = JobSecurity(),
+        teamTalk: TeamTalkStyle? = nil,
+        teamTalkAppliedWeek: Int? = nil,
         europeanCompetitions: [EuropeanCompetitionState] = [],
         europeanMatchweek: Int = 0,
         nationalTeams: [NationalTeam] = [],
@@ -159,6 +167,9 @@ public final class GameState: Codable {
         self.jobOffers = jobOffers
         self.owner = owner
         self.lastTrainingWeek = lastTrainingWeek
+        self.jobSecurity = jobSecurity
+        self.teamTalk = teamTalk
+        self.teamTalkAppliedWeek = teamTalkAppliedWeek
         self.europeanCompetitions = europeanCompetitions
         self.europeanMatchweek = europeanMatchweek
         self.nationalTeams = nationalTeams
@@ -599,6 +610,10 @@ public final class GameState: Codable {
         
         fixture.isPlayed = true
         fixture.result = result
+
+        if fixture.involves(clubId: userClubId ?? UUID()) {
+            updateBoardConfidence(after: result, userWasHome: fixture.homeClubId == userClubId)
+        }
     }
     
     // MARK: - User Transfer Bidding
@@ -1389,6 +1404,86 @@ public final class GameState: Codable {
         return true
     }
 
+    /// Sets a matchweek team talk. It is intentionally a small, temporary edge:
+    /// preparation and player quality still decide the match.
+    @discardableResult
+    public func chooseTeamTalk(_ style: TeamTalkStyle) -> Bool {
+        guard gameMode != .createClub, userClub != nil else { return false }
+        teamTalk = style
+        teamTalkAppliedWeek = nil
+        addNews(headline: "Team Talk Set: \(style.rawValue)", body: style.effectSummary, category: .board, sender: "Manager's Office")
+        return true
+    }
+
+    /// Applies the selected talk once, immediately before the user fixture is simulated.
+    public func applyTeamTalkIfNeeded() {
+        guard let style = teamTalk,
+              teamTalkAppliedWeek != season.currentWeek,
+              let clubIndex = clubs.firstIndex(where: { $0.isUserClub }) else { return }
+        for playerIndex in clubs[clubIndex].players.indices where clubs[clubIndex].players[playerIndex].injury == nil {
+            switch style {
+            case .calm, .rally, .protect:
+                clubs[clubIndex].players[playerIndex].boostMorale()
+            case .firedUp:
+                clubs[clubIndex].players[playerIndex].boostMorale()
+                clubs[clubIndex].players[playerIndex].sharpness = min(100, clubs[clubIndex].players[playerIndex].sharpness + 2)
+            case .demand:
+                clubs[clubIndex].players[playerIndex].sharpness = min(100, clubs[clubIndex].players[playerIndex].sharpness + 4)
+                if clubs[clubIndex].players[playerIndex].morale == .furious { clubs[clubIndex].players[playerIndex].dampenMorale() }
+            }
+        }
+        teamTalkAppliedWeek = season.currentWeek
+    }
+
+    private func updateBoardConfidence(after result: MatchResult, userWasHome: Bool) {
+        let goalsFor = userWasHome ? result.homeGoals : result.awayGoals
+        let goalsAgainst = userWasHome ? result.awayGoals : result.homeGoals
+        let won = goalsFor > goalsAgainst
+        let drawn = goalsFor == goalsAgainst
+        if won {
+            jobSecurity.gamesWithoutWin = 0
+            jobSecurity.underperformingWeeks = max(0, jobSecurity.underperformingWeeks - 1)
+            jobSecurity.boardConfidence = min(100, jobSecurity.boardConfidence + (goalsFor - goalsAgainst >= 3 ? 6 : 3))
+        } else {
+            jobSecurity.gamesWithoutWin += 1
+            if !drawn { jobSecurity.underperformingWeeks += 1 }
+            let drop = drawn ? 1 : min(8, 3 + jobSecurity.gamesWithoutWin / 2)
+            jobSecurity.boardConfidence = max(0, jobSecurity.boardConfidence - drop)
+        }
+        let tone = jobSecurity.boardConfidence < 40 ? "The board need an immediate improvement." : "The board remain focused on the season objective."
+        addNews(headline: "Board Confidence: \(jobSecurity.status)", body: "Confidence is \(jobSecurity.boardConfidence) out of 100 after the result. \(tone)", category: .board, sender: "The Board")
+    }
+
+    /// Owner-only budget split. Reallocating cash is capped by available balance,
+    /// so the owner cannot manufacture funds by changing a percentage.
+    @discardableResult
+    public func setOwnerBudgetAllocation(transferPercent: Int) -> Bool {
+        guard gameMode == .createClub, let index = clubs.firstIndex(where: { $0.isUserClub }) else { return false }
+        let transfer = max(0, min(100, transferPercent))
+        owner.budgetAllocation = BudgetAllocation(transferBudgetPercent: transfer, wageBudgetPercent: 100 - transfer)
+        let flexibleCash = max(0, clubs[index].finances.balance / 4)
+        clubs[index].finances.transferBudget = max(clubs[index].finances.transferBudget, flexibleCash * transfer / 100)
+        clubs[index].finances.wageBudget = max(clubs[index].finances.wageBudget, flexibleCash * (100 - transfer) / 100)
+        return true
+    }
+
+    /// Signs one sensible commercial partner per owner career. The annual value
+    /// scales with club reputation and is credited to sponsorship income.
+    @discardableResult
+    public func signSponsorshipDeal(_ tier: SponsorshipTier) -> Bool {
+        guard gameMode == .createClub,
+              owner.sponsorshipDeals.count < 3,
+              let index = clubs.firstIndex(where: { $0.isUserClub }) else { return false }
+        let reputationFactor = 0.55 + Double(clubs[index].reputation) / 200.0
+        let annualValue = Int(Double(tier.baseIncome) * reputationFactor)
+        let names = ["Northstar", "Civic", "Vertex", "Harbour", "Summit"]
+        let deal = SponsorshipDeal(sponsorName: "\(names[owner.sponsorshipDeals.count]) \(tier.rawValue)", tier: tier, annualValue: annualValue, performanceBonus: annualValue / 10)
+        owner.sponsorshipDeals.append(deal)
+        clubs[index].finances.sponsorshipIncome += annualValue
+        addNews(headline: "New Commercial Partner", body: "\(deal.sponsorName) has agreed a \(Player.formatCurrency(annualValue)) per year deal, plus performance bonuses.", category: .board, sender: "Commercial Director")
+        return true
+    }
+
     public func appointManager(_ candidate: ManagerCandidate) -> Bool {
         guard gameMode == .createClub,
               let index = clubs.firstIndex(where: { $0.isUserClub }),
@@ -2030,13 +2125,16 @@ public final class GameState: Codable {
         case jobOffers
         case owner
         case lastTrainingWeek
+        case jobSecurity
+        case teamTalk
+        case teamTalkAppliedWeek
         case europeanCompetitions
         case europeanMatchweek
         case nationalTeams
         case internationalTournaments
         case managedNationalTeamId
     }
-    
+
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(gameMode, forKey: .gameMode)
@@ -2058,6 +2156,9 @@ public final class GameState: Codable {
         try container.encode(jobOffers, forKey: .jobOffers)
         try container.encode(owner, forKey: .owner)
         try container.encodeIfPresent(lastTrainingWeek, forKey: .lastTrainingWeek)
+        try container.encode(jobSecurity, forKey: .jobSecurity)
+        try container.encodeIfPresent(teamTalk, forKey: .teamTalk)
+        try container.encodeIfPresent(teamTalkAppliedWeek, forKey: .teamTalkAppliedWeek)
         try container.encode(europeanCompetitions, forKey: .europeanCompetitions)
         try container.encode(europeanMatchweek, forKey: .europeanMatchweek)
         try container.encode(nationalTeams, forKey: .nationalTeams)
@@ -2086,6 +2187,9 @@ public final class GameState: Codable {
         self.jobOffers = try container.decodeIfPresent([JobOffer].self, forKey: .jobOffers) ?? []
         self.owner = try container.decodeIfPresent(OwnerProfile.self, forKey: .owner) ?? OwnerProfile()
         self.lastTrainingWeek = try container.decodeIfPresent(Int.self, forKey: .lastTrainingWeek)
+        self.jobSecurity = try container.decodeIfPresent(JobSecurity.self, forKey: .jobSecurity) ?? JobSecurity()
+        self.teamTalk = try container.decodeIfPresent(TeamTalkStyle.self, forKey: .teamTalk)
+        self.teamTalkAppliedWeek = try container.decodeIfPresent(Int.self, forKey: .teamTalkAppliedWeek)
         self.europeanCompetitions = try container.decodeIfPresent([EuropeanCompetitionState].self, forKey: .europeanCompetitions) ?? []
         self.europeanMatchweek = try container.decodeIfPresent(Int.self, forKey: .europeanMatchweek) ?? 0
         self.nationalTeams = try container.decodeIfPresent([NationalTeam].self, forKey: .nationalTeams) ?? []

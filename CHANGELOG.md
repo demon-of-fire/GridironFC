@@ -50,6 +50,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Manager pressure and match psychology** — the board now tracks confidence,
+  winless runs and job status after every user result. Choose a pre-match team
+  talk (calm, fired up, rally, demand more or protect) and see its temporary
+  morale/readiness effect applied when the match starts.
+- **Owner commercial control** — owners can set a transfer-versus-wage funding
+  direction and sign up to three reputation-scaled sponsorship partnerships.
+  Deals contribute recurring commercial income instead of granting free cash.
+- **More credible deal data** — transfer offers now safely preserve staged
+  payments, sell-on clauses and add-ons, including in older saved careers.
+- **Clearer VoiceOver match flow** — the visual pitch identifies itself as
+  decorative and directs VoiceOver users to the live commentary feed; manager
+  readiness announces board confidence alongside squad availability.
+
 - **Manager command centre** — Home now surfaces live starting-XI readiness,
   direct operational controls and a dedicated Training Ground. One focused
   session per matchweek lets managers trade between fitness, sharpness, morale

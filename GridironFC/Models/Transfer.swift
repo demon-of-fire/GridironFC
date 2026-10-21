@@ -22,7 +22,7 @@ public struct TransferOffer: Codable, Identifiable, Hashable {
     public var offeredWage: Int?      // Weekly wage offer for personal terms
     public var contractYears: Int?    // Contract length in years
 
-    // MARK: Negotiation state
+// MARK: Negotiation state
     /// The selling club's valuation captured when the bid was made, used for counters.
     public var askingPrice: Int
     /// Fee the selling club is willing to accept (their latest counter). nil = none.
@@ -37,6 +37,14 @@ public struct TransferOffer: Codable, Identifiable, Hashable {
     public var createdDate: String
     /// Weeks until the counterparty responds (0 = ready to resolve this week).
     public var weeksUntilResponse: Int
+    /// Realistic deal structure: pay a portion now, remainder in installments.
+    public var installments: Int        // e.g. 1 = full, 2 = 50/50, 3 = thirds
+    /// Years of sell-on percentage (0 if none).
+    public var sellOnPercent: Int
+    /// Years of sell-on obligation (0 if none).
+    public var sellOnYears: Int
+    /// Bonus if add-ons triggered (e.g. appearances).
+    public var addOnAmount: Int
 
     public init(
         id: UUID = UUID(),
@@ -55,7 +63,11 @@ public struct TransferOffer: Codable, Identifiable, Hashable {
         isIncoming: Bool = false,
         negotiationRound: Int = 0,
         createdDate: String = "",
-        weeksUntilResponse: Int = 1
+        weeksUntilResponse: Int = 1,
+        installments: Int = 1,
+        sellOnPercent: Int = 0,
+        sellOnYears: Int = 0,
+        addOnAmount: Int = 0
     ) {
         self.id = id
         self.playerId = playerId
@@ -74,6 +86,10 @@ public struct TransferOffer: Codable, Identifiable, Hashable {
         self.negotiationRound = negotiationRound
         self.createdDate = createdDate
         self.weeksUntilResponse = weeksUntilResponse
+        self.installments = max(1, installments)
+        self.sellOnPercent = max(0, min(50, sellOnPercent))
+        self.sellOnYears = max(0, sellOnYears)
+        self.addOnAmount = max(0, addOnAmount)
     }
 
     /// True while the offer is waiting on a response (fee negotiation or the
@@ -100,6 +116,7 @@ public struct TransferOffer: Codable, Identifiable, Hashable {
         case id, playerId, fromClubId, toClubId, fee, isLoan, loanWeeks, status
         case offeredWage, contractYears, askingPrice, counterFee, demandedWage
         case isIncoming, negotiationRound, createdDate, weeksUntilResponse
+        case installments, sellOnPercent, sellOnYears, addOnAmount
     }
 
     public init(from decoder: Decoder) throws {
@@ -121,6 +138,10 @@ public struct TransferOffer: Codable, Identifiable, Hashable {
         negotiationRound = try c.decodeIfPresent(Int.self, forKey: .negotiationRound) ?? 0
         createdDate = try c.decodeIfPresent(String.self, forKey: .createdDate) ?? ""
         weeksUntilResponse = try c.decodeIfPresent(Int.self, forKey: .weeksUntilResponse) ?? 0
+        installments = max(1, try c.decodeIfPresent(Int.self, forKey: .installments) ?? 1)
+        sellOnPercent = max(0, min(50, try c.decodeIfPresent(Int.self, forKey: .sellOnPercent) ?? 0))
+        sellOnYears = max(0, try c.decodeIfPresent(Int.self, forKey: .sellOnYears) ?? 0)
+        addOnAmount = max(0, try c.decodeIfPresent(Int.self, forKey: .addOnAmount) ?? 0)
     }
 }
 

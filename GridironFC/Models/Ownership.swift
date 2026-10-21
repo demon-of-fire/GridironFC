@@ -30,12 +30,16 @@ public struct OwnerProfile: Codable, Hashable {
     /// 0–100 supporter confidence. It reacts to appointments and investment.
     public var supporterConfidence: Int
     public var legacyPoints: Int
+    public var budgetAllocation: BudgetAllocation
+    public var sponsorshipDeals: [SponsorshipDeal]
 
-    public init(name: String = "Club Owner", vision: ClubVision = .sustainable, supporterConfidence: Int = 62, legacyPoints: Int = 0) {
+    public init(name: String = "Club Owner", vision: ClubVision = .sustainable, supporterConfidence: Int = 62, legacyPoints: Int = 0, budgetAllocation: BudgetAllocation = BudgetAllocation(), sponsorshipDeals: [SponsorshipDeal] = []) {
         self.name = name
         self.vision = vision
         self.supporterConfidence = max(0, min(100, supporterConfidence))
         self.legacyPoints = max(0, legacyPoints)
+        self.budgetAllocation = budgetAllocation
+        self.sponsorshipDeals = sponsorshipDeals
     }
 }
 
