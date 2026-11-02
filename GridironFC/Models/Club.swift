@@ -358,7 +358,14 @@ public struct Club: Codable, Identifiable, Hashable {
     /// Automatically selects the optimal 11 starters and bench players matching the current formation preset.
     public mutating func autoPickStartingXI() {
         var selectedStarters: [UUID] = []
-        var pool = availablePlayers
+        // Work from strongest to weakest so an exact positional match always
+        // selects the best available player for that role.  The old behaviour
+        // selected the first player in the data file, which made an auto-picked
+        // side depend on import order rather than football ability.
+        var pool = availablePlayers.sorted { lhs, rhs in
+            if lhs.overall != rhs.overall { return lhs.overall > rhs.overall }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
         
         let requiredPositions = tactics.formation.defaultPositions
         
@@ -418,15 +425,74 @@ public struct Club: Codable, Identifiable, Hashable {
         }
     }
     
-    /// Validates and repairs startingXI and bench arrays, removing nonexistent IDs and replenishing if needed.
+    /// Validates and repairs startingXI and bench arrays, removing nonexistent, injured,
+    /// or suspended players and replenishing from the available reserves.
     public mutating func ensureTacticalIntegrity() {
         let playerIds = Set(players.map { $0.id })
+        let unavailableIds = Set(players.filter { !$0.isAvailable }.map { $0.id })
         
-        tactics.startingXI.removeAll { !playerIds.contains($0) }
-        tactics.substitutes.removeAll { !playerIds.contains($0) }
+        tactics.startingXI.removeAll { !playerIds.contains($0) || unavailableIds.contains($0) }
+        tactics.substitutes.removeAll { !playerIds.contains($0) || unavailableIds.contains($0) }
+        
+        // Remove duplicate assignments, keeping the first occurrence.
+        var seenStarters = Set<UUID>()
+        tactics.startingXI = tactics.startingXI.filter { seenStarters.insert($0).inserted }
+        var seenSubs = seenStarters
+        tactics.substitutes = tactics.substitutes.filter { seenSubs.insert($0).inserted }
+
+        // A save or formation change can leave more than eleven starters or more
+        // than seven substitutes. Trim the excess before repairing the lineup.
+        if tactics.startingXI.count > 11 {
+            tactics.startingXI = Array(tactics.startingXI.prefix(11))
+        }
+        if tactics.substitutes.count > 7 {
+            tactics.substitutes = Array(tactics.substitutes.prefix(7))
+        }
         
         if tactics.startingXI.count < 11 {
             autoPickStartingXI()
+            return
+        }
+
+        // Repair captain and set-piece duties that point at players who are no
+        // longer in the starting XI (sold, injured, suspended, or benched).
+        let xiIds = Set(tactics.startingXI)
+        let starters = players.filter { xiIds.contains($0.id) }
+        func bestStarter(_ attribute: (Player) -> Int) -> UUID? {
+            starters.max { attribute($0) < attribute($1) }?.id
+        }
+        if let captain = tactics.captain, xiIds.contains(captain) {
+            // Keep the current captain.
+        } else {
+            tactics.captain = bestStarter { $0.attributes.leadership }
+        }
+        if let taker = tactics.penaltyTaker, xiIds.contains(taker) {
+            // Keep the current penalty taker.
+        } else {
+            tactics.penaltyTaker = bestStarter { $0.attributes.penalties }
+        }
+        if let taker = tactics.freeKickTaker, xiIds.contains(taker) {
+            // Keep the current free-kick taker.
+        } else {
+            tactics.freeKickTaker = bestStarter { $0.attributes.freeKicks }
+        }
+        if let taker = tactics.cornerTaker, xiIds.contains(taker) {
+            // Keep the current corner taker.
+        } else {
+            tactics.cornerTaker = bestStarter { $0.attributes.crossing }
+        }
+        
+        // Top up the bench from available reserves without disturbing the starting XI.
+        let availableReserves = players.filter {
+            $0.isAvailable && !xiIds.contains($0.id) && !tactics.substitutes.contains($0.id)
+        }
+        let needed = max(0, 7 - tactics.substitutes.count)
+        if needed > 0 {
+            let additions = availableReserves
+                .sorted { $0.overall > $1.overall }
+                .prefix(needed)
+                .map { $0.id }
+            tactics.substitutes.append(contentsOf: additions)
         }
     }
 

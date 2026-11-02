@@ -50,6 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Career resignation flow** — managers can now resign from My Profile and
+  immediately enter the vacancy market while retaining their career history.
 - **Manager pressure and match psychology** — the board now tracks confidence,
   winless runs and job status after every user result. Choose a pre-match team
   talk (calm, fired up, rally, demand more or protect) and see its temporary
@@ -163,11 +165,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   procedurally generated avatar. Your profile tracks reputation, a coaching
   attribute card, and a season-by-season career history (positions, records,
   honours).
-- **Start Unemployed** — a new career mode that begins without a club. Job offers
-  arrive based on your reputation; accept a role to begin work.
 - **Job offers & managerial mobility** — clubs approach you with vacancies, from
-  your inbox and a dedicated Job Offers screen. Accept to switch clubs (ending a
-  current stint) or decline. Reputation drifts with results.
+  your inbox and a dedicated Job Offers screen (overflow menu). Accept to switch
+  clubs (ending a current stint) or decline. Reputation drifts with results.
 - **Player of the Match** — the full-time recap now names the match's best player
   with their club and rating before the other details.
 - **My Profile / Job Offers** added to the in-game overflow menu.
@@ -182,6 +182,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Safer world simulation** — fixture generation now handles incomplete league
+  data without indexing an empty schedule, and job-offer generation safely
+  normalises invalid request limits.
 - **Calendar-driven progression** — the dashboard *Continue* button now advances
   day by day to your next fixture (simulating other clubs' matches as it goes)
   instead of requiring a separate *Prepare for Match* step, which was removed.

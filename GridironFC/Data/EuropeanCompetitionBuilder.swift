@@ -42,9 +42,14 @@ public enum EuropeanCompetitionBuilder {
             var participants: [UUID] = []
             var usedNames = Set<String>()
 
-            // 1. Real seeds, matched to loaded clubs by normalised name.
+            // 1. Real seeds, matched to loaded clubs by normalised name. A club
+            //    already entered in a stronger competition cannot be seeded twice.
             for name in seedNames {
-                if let club = clubs.first(where: { matches($0, name: name) && !usedNames.contains($0.name) }) {
+                if let club = clubs.first(where: {
+                    matches($0, name: name)
+                        && !usedNames.contains($0.name)
+                        && !alreadyEntered.contains($0.id)
+                }) {
                     participants.append(club.id)
                     usedNames.insert(club.name)
                 }
@@ -62,6 +67,13 @@ public enum EuropeanCompetitionBuilder {
                     usedNames.insert(club.name)
                 }
             }
+
+            // A league phase needs an even number of clubs. Trim a spare seed
+            // rather than leaving one participant without a single fixture.
+            if participants.count % 2 != 0 {
+                participants.removeLast()
+            }
+            guard participants.count >= 4 else { continue }
 
             for id in participants { alreadyEntered.insert(id) }
 

@@ -6,7 +6,7 @@
 
 ## 🌟 Key Features
 
-- **Distinct Career Roles**: *Own a New Club* is an owner-first career with a boardroom, manager appointments, staff recruitment, facilities and stadium investment. *Manage Existing Club* is a head-coach career centred on tactics, squad selection and matchdays. *Start Unemployed* begins a traditional manager journey from the job market.
+- **Distinct Career Roles**: *Own a New Club* is an owner-first career with a boardroom, manager appointments, staff recruitment, facilities and stadium investment. *Manage Existing Club* is a head-coach career centred on tactics, squad selection and matchdays, with job offers available from the overflow menu for later moves.
 - **Dynamic State Engine (`@Observable GameState`)**: Built on modern iOS 17 Observation macros for seamless, reactive data updates across all views.
 - **Deep Player Simulation**: Over 30 technical, physical, mental, and goalkeeping attributes generated using position-specific procedural templates with randomized variance and specialty overrides.
 - **Procedural Faces & Crests**: Every player portrait and club badge is generated deterministically from a stable seed — no real likenesses or trademarked imagery are used, keeping the build fully offline and asset-free.
@@ -68,8 +68,7 @@ GridironFC/
 | Mode | Description |
 | --- | --- |
 | **Own a New Club** | Found a club, set its long-term vision, appoint or dismiss the manager, hire specialist staff and invest in training, academy, medical and stadium infrastructure. |
-| **Manage Existing Club** | Create a manager, then take charge of an existing club's tactics, squad, training and matchdays. |
-| **Start Unemployed** | Create a manager without a club and work your way through job offers. |
+| **Manage Existing Club** | Create a manager, then take charge of an existing club's tactics, squad, training and matchdays. Job offers remain available from the overflow menu. |
 
 ---
 

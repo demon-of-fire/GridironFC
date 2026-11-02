@@ -24,6 +24,31 @@ public enum ClubVision: String, Codable, CaseIterable, Identifiable, Hashable {
     }
 }
 
+public struct OwnerMilestone: Codable, Hashable, Identifiable {
+    public let id: String
+    public let title: String
+    public let detail: String
+    public let bonusPoints: Int
+    public var isUnlocked: Bool
+
+    public init(id: String, title: String, detail: String, bonusPoints: Int, isUnlocked: Bool = false) {
+        self.id = id
+        self.title = title
+        self.detail = detail
+        self.bonusPoints = bonusPoints
+        self.isUnlocked = isUnlocked
+    }
+
+    public static let standard: [OwnerMilestone] = [
+        OwnerMilestone(id: "first_win", title: "First Victory", detail: "Win your first competitive match under your ownership", bonusPoints: 4),
+        OwnerMilestone(id: "clean_sheet", title: "Clean Sheet", detail: "Record a shutout in any league fixture", bonusPoints: 3),
+        OwnerMilestone(id: "commercial_partner", title: "Commercial Partner", detail: "Sign your first official club sponsorship deal", bonusPoints: 5),
+        OwnerMilestone(id: "reserves", title: "Solid Reserves", detail: "Build club cash reserves to over £2,500,000", bonusPoints: 6),
+        OwnerMilestone(id: "five_unbeaten", title: "5 Unbeaten", detail: "Go five consecutive league matches without defeat", bonusPoints: 8),
+        OwnerMilestone(id: "promotion", title: "Ascent", detail: "Earn promotion to a higher tier of English football", bonusPoints: 15)
+    ]
+}
+
 public struct OwnerProfile: Codable, Hashable {
     public var name: String
     public var vision: ClubVision
@@ -32,14 +57,39 @@ public struct OwnerProfile: Codable, Hashable {
     public var legacyPoints: Int
     public var budgetAllocation: BudgetAllocation
     public var sponsorshipDeals: [SponsorshipDeal]
+    public var milestones: [OwnerMilestone]
 
-    public init(name: String = "Club Owner", vision: ClubVision = .sustainable, supporterConfidence: Int = 62, legacyPoints: Int = 0, budgetAllocation: BudgetAllocation = BudgetAllocation(), sponsorshipDeals: [SponsorshipDeal] = []) {
+    public init(
+        name: String = "Club Owner",
+        vision: ClubVision = .sustainable,
+        supporterConfidence: Int = 62,
+        legacyPoints: Int = 0,
+        budgetAllocation: BudgetAllocation = BudgetAllocation(),
+        sponsorshipDeals: [SponsorshipDeal] = [],
+        milestones: [OwnerMilestone] = OwnerMilestone.standard
+    ) {
         self.name = name
         self.vision = vision
         self.supporterConfidence = max(0, min(100, supporterConfidence))
         self.legacyPoints = max(0, legacyPoints)
         self.budgetAllocation = budgetAllocation
         self.sponsorshipDeals = sponsorshipDeals
+        self.milestones = milestones.isEmpty ? OwnerMilestone.standard : milestones
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, vision, supporterConfidence, legacyPoints, budgetAllocation, sponsorshipDeals, milestones
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Club Owner"
+        self.vision = try container.decodeIfPresent(ClubVision.self, forKey: .vision) ?? .sustainable
+        self.supporterConfidence = try container.decodeIfPresent(Int.self, forKey: .supporterConfidence) ?? 62
+        self.legacyPoints = try container.decodeIfPresent(Int.self, forKey: .legacyPoints) ?? 0
+        self.budgetAllocation = try container.decodeIfPresent(BudgetAllocation.self, forKey: .budgetAllocation) ?? BudgetAllocation()
+        self.sponsorshipDeals = try container.decodeIfPresent([SponsorshipDeal].self, forKey: .sponsorshipDeals) ?? []
+        self.milestones = try container.decodeIfPresent([OwnerMilestone].self, forKey: .milestones) ?? OwnerMilestone.standard
     }
 }
 

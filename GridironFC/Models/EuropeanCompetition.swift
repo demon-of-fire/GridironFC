@@ -179,7 +179,7 @@ public struct EuropeanCompetitionState: Codable, Identifiable, Hashable {
         var rows: [UUID: EuropeanRow] = [:]
         for clubId in participantClubIds { rows[clubId] = EuropeanRow(clubId: clubId) }
 
-        for f in fixtures where f.isPlayed {
+        for f in fixtures where f.isPlayed && f.stage == "League Phase" {
             rows[f.homeClubId]?.record(goalsFor: f.homeGoals, goalsAgainst: f.awayGoals)
             rows[f.awayClubId]?.record(goalsFor: f.awayGoals, goalsAgainst: f.homeGoals)
         }
@@ -188,7 +188,8 @@ public struct EuropeanCompetitionState: Codable, Identifiable, Hashable {
 
     /// True once every league-phase fixture has a result.
     public var leaguePhaseComplete: Bool {
-        fixtures.filter { $0.stage == "League Phase" }.allSatisfy { $0.isPlayed }
+        let leagueFixtures = fixtures.filter { $0.stage == "League Phase" }
+        return !leagueFixtures.isEmpty && leagueFixtures.allSatisfy { $0.isPlayed }
     }
 
     /// All fixtures for a given matchweek.
@@ -203,9 +204,34 @@ public struct EuropeanCompetitionState: Codable, Identifiable, Hashable {
         return !roundFixtures.isEmpty && roundFixtures.allSatisfy { $0.isPlayed }
     }
 
+    /// Number of clubs that contest the knockout bracket. Larger fields use the
+    /// play-off round; smaller ones fall back to a compact power-of-two bracket.
+    private var knockoutFieldSize: Int {
+        let available = table().count
+        if available >= 24 { return 24 }
+        if available >= 16 { return 16 }
+        if available >= 8 { return 8 }
+        if available >= 4 { return 4 }
+        return 0
+    }
+
     /// The knockout round currently in progress, if any.
     public var activeKnockoutRound: String? {
-        for round in Self.knockoutOrder {
+        let rounds: [String]
+        switch knockoutFieldSize {
+        case 24...:
+            rounds = Self.knockoutOrder
+        case 16:
+            rounds = ["Round of 16", "Quarter-Final", "Semi-Final", "Final"]
+        case 8:
+            rounds = ["Quarter-Final", "Semi-Final", "Final"]
+        case 4:
+            rounds = ["Semi-Final", "Final"]
+        default:
+            rounds = []
+        }
+
+        for round in rounds {
             let roundFixtures = fixtures.filter { $0.stage == round }
             if roundFixtures.isEmpty { return round }
             if !roundFixtures.allSatisfy({ $0.isPlayed }) { return round }
@@ -228,24 +254,54 @@ public struct EuropeanCompetitionState: Codable, Identifiable, Hashable {
             fixtures[idx].isPlayed = true
         }
 
-        if stage == .leaguePhase && leaguePhaseComplete {
+        if stage == .leaguePhase {
+            guard leaguePhaseComplete else { return }
             stage = .knockout
             generateNextKnockoutRound()
-        } else if stage == .knockout && currentRoundComplete() {
+            return
+        }
+
+        guard stage == .knockout else { return }
+
+        // The active round can legitimately have no fixtures when the previous
+        // round has just finished; generate it now instead of waiting forever.
+        guard let round = activeKnockoutRound else {
+            finishCompetition()
+            return
+        }
+        let roundFixtures = fixtures.filter { $0.stage == round }
+        if roundFixtures.isEmpty || roundFixtures.allSatisfy({ $0.isPlayed }) {
             generateNextKnockoutRound()
         }
     }
 
-    /// Two-legged tie winner by aggregate (ties broken by away goals then first-listed).
+    private mutating func finishCompetition() {
+        guard stage != .complete else { return }
+        stage = .complete
+        guard let final = fixtures.first(where: { $0.stage == "Final" && $0.isPlayed }) else { return }
+        championClubId = tieWinner(first: final.homeClubId, second: final.awayClubId, stage: "Final")
+    }
+
+    /// Two-legged tie winner by aggregate (ties broken by away goals then a shootout).
     private func tieWinner(first: UUID, second: UUID, stage: String) -> UUID {
         let legs = fixtures.filter {
             $0.stage == stage &&
             (($0.homeClubId == first && $0.awayClubId == second) ||
              ($0.homeClubId == second && $0.awayClubId == first))
+        }.filter { $0.isPlayed }
+
+        // A single-match final has no aggregate or away-goals rule: a draw goes
+        // straight to a penalty shootout.
+        if legs.count == 1, let final = legs.first {
+            if final.homeGoals != final.awayGoals {
+                return final.homeGoals > final.awayGoals ? final.homeClubId : final.awayClubId
+            }
+            return Double.random(in: 0...1) < 0.5 ? first : second
         }
+
         var firstGoals = 0, secondGoals = 0
         var firstAway = 0, secondAway = 0
-        for leg in legs where leg.isPlayed {
+        for leg in legs {
             if leg.homeClubId == first {
                 firstGoals += leg.homeGoals; secondGoals += leg.awayGoals; secondAway += leg.awayGoals
             } else {
@@ -254,60 +310,67 @@ public struct EuropeanCompetitionState: Codable, Identifiable, Hashable {
         }
         if firstGoals != secondGoals { return firstGoals > secondGoals ? first : second }
         if firstAway != secondAway { return firstAway > secondAway ? first : second }
-        return first
+        // Level on aggregate (and away goals): decide the tie with a shootout.
+        return Double.random(in: 0...1) < 0.5 ? first : second
     }
 
-    /// Generates the fixtures for the next outstanding knockout round.
+    /// Generates the fixtures for the next outstanding knockout round. Larger
+    /// fields use the play-off/Round of 16 path; smaller ones drop straight into
+    /// a compact power-of-two bracket seeded from the league table.
     private mutating func generateNextKnockoutRound() {
         guard let round = activeKnockoutRound else {
-            stage = .complete
-            if let final = fixtures.first(where: { $0.stage == "Final" && $0.isPlayed }) {
-                championClubId = final.homeGoals >= final.awayGoals ? final.homeClubId : final.awayClubId
-                stage = .complete
-            }
+            finishCompetition()
             return
         }
 
         let baseWeek = (fixtures.map { $0.matchweek }.max() ?? competition.leaguePhaseMatches) + 1
+        let standings = table()
+        let orderedIds = standings.map { $0.clubId }
         var newFixtures: [EuropeanFixture] = []
 
         switch round {
         case "Knockout Play-off":
-            let standings = table()
-            guard standings.count >= 24 else { return }
-            let playOff = Array(standings[8..<24].map { $0.clubId })
+            guard orderedIds.count >= 24 else { return }
+            let playOff = Array(orderedIds[8..<24])
             for i in 0..<8 {
                 let home = playOff[i], away = playOff[15 - i]
-                newFixtures.append(EuropeanFixture(homeClubId: home, awayClubId: away, matchweek: baseWeek, stage: round, leg: 1))
-                newFixtures.append(EuropeanFixture(homeClubId: away, awayClubId: home, matchweek: baseWeek + 1, stage: round, leg: 2))
+                newFixtures.append(contentsOf: twoLeggedTie(home: home, away: away, stage: round, baseWeek: baseWeek))
             }
 
         case "Round of 16":
-            let standings = table()
-            guard standings.count >= 16 else { return }
-            let top8 = standings.prefix(8).map { $0.clubId }
-            let playOff = Array(standings[8..<24].map { $0.clubId })
-            let winners = (0..<8).map { i in
-                tieWinner(first: playOff[i], second: playOff[15 - i], stage: "Knockout Play-off")
+            let top8 = Array(orderedIds.prefix(8))
+            let playOffWinners = knockoutWinners(from: "Knockout Play-off")
+            let winners: [UUID]
+            if playOffWinners.count >= 8 {
+                winners = Array(playOffWinners.prefix(8))
+            } else if orderedIds.count >= 16 {
+                winners = Array(orderedIds[8..<16])
+            } else {
+                winners = Array(orderedIds.dropFirst(8))
             }
-            for (home, away) in zip(top8, winners) {
-                newFixtures.append(EuropeanFixture(homeClubId: home, awayClubId: away, matchweek: baseWeek, stage: round, leg: 1))
-                newFixtures.append(EuropeanFixture(homeClubId: away, awayClubId: home, matchweek: baseWeek + 1, stage: round, leg: 2))
-            }
+            newFixtures.append(contentsOf: seededTies(home: top8, away: winners, stage: round, baseWeek: baseWeek))
 
-        case "Quarter-Final", "Semi-Final":
-            let prev = round == "Quarter-Final" ? "Round of 16" : "Quarter-Final"
-            let pairs = knockoutWinners(from: prev)
-            for i in stride(from: 0, to: pairs.count - 1, by: 2) {
-                let home = pairs[i], away = pairs[i + 1]
-                newFixtures.append(EuropeanFixture(homeClubId: home, awayClubId: away, matchweek: baseWeek, stage: round, leg: 1))
-                newFixtures.append(EuropeanFixture(homeClubId: away, awayClubId: home, matchweek: baseWeek + 1, stage: round, leg: 2))
-            }
+        case "Quarter-Final":
+            let r16Winners = knockoutWinners(from: "Round of 16")
+            let qualifiers = r16Winners.count >= 2 ? r16Winners : Array(orderedIds.prefix(8))
+            newFixtures.append(contentsOf: pairedTies(qualifiers: qualifiers, stage: round, baseWeek: baseWeek))
+
+        case "Semi-Final":
+            let qfWinners = knockoutWinners(from: "Quarter-Final")
+            let qualifiers = qfWinners.count >= 2 ? qfWinners : Array(orderedIds.prefix(4))
+            newFixtures.append(contentsOf: pairedTies(qualifiers: qualifiers, stage: round, baseWeek: baseWeek))
 
         case "Final":
-            let pairs = knockoutWinners(from: "Semi-Final")
-            if let home = pairs.first, let away = pairs.dropFirst().first {
-                newFixtures.append(EuropeanFixture(homeClubId: home, awayClubId: away, matchweek: baseWeek, stage: round, leg: 0))
+            let sfWinners = knockoutWinners(from: "Semi-Final")
+            let finalists = sfWinners.count >= 2 ? sfWinners : Array(orderedIds.prefix(2))
+            if finalists.count == 2 {
+                newFixtures.append(EuropeanFixture(
+                    homeClubId: finalists[0],
+                    awayClubId: finalists[1],
+                    matchweek: baseWeek,
+                    stage: round,
+                    leg: 0
+                ))
             }
 
         default:
@@ -315,11 +378,45 @@ public struct EuropeanCompetitionState: Codable, Identifiable, Hashable {
         }
 
         fixtures.append(contentsOf: newFixtures)
-        // If the final was just generated it is the last round; completion is detected
-        // after it is simulated on the following advance.
     }
 
-    /// Returns the ordered winners of every tie in a completed knockout round.
+    /// First leg at `home`, second leg at `away`.
+    private func twoLeggedTie(home: UUID, away: UUID, stage: String, baseWeek: Int) -> [EuropeanFixture] {
+        [
+            EuropeanFixture(homeClubId: home, awayClubId: away, matchweek: baseWeek, stage: stage, leg: 1),
+            EuropeanFixture(homeClubId: away, awayClubId: home, matchweek: baseWeek + 1, stage: stage, leg: 2)
+        ]
+    }
+
+    /// Seeded two-legged ties pairing each home seed with the corresponding away seed.
+    private func seededTies(home: [UUID], away: [UUID], stage: String, baseWeek: Int) -> [EuropeanFixture] {
+        let pairCount = min(home.count, away.count)
+        guard pairCount >= 2 else { return [] }
+        var ties: [EuropeanFixture] = []
+        for i in 0..<pairCount {
+            ties.append(contentsOf: twoLeggedTie(home: home[i], away: away[i], stage: stage, baseWeek: baseWeek))
+        }
+        return ties
+    }
+
+    /// Two-legged ties pairing qualifiers in order: 1st v 2nd, 3rd v 4th, …
+    private func pairedTies(qualifiers: [UUID], stage: String, baseWeek: Int) -> [EuropeanFixture] {
+        guard qualifiers.count >= 2 else { return [] }
+        var ties: [EuropeanFixture] = []
+        for i in stride(from: 0, to: qualifiers.count - 1, by: 2) {
+            ties.append(contentsOf: twoLeggedTie(
+                home: qualifiers[i],
+                away: qualifiers[i + 1],
+                stage: stage,
+                baseWeek: baseWeek
+            ))
+        }
+        return ties
+    }
+
+    /// Returns the ordered winners of every completed knockout round tie. Ties
+    /// with an unplayed leg are ignored so a partially simulated round cannot
+    /// produce a phantom winner.
     private func knockoutWinners(from stage: String) -> [UUID] {
         let roundFixtures = fixtures.filter { $0.stage == stage }
         var seen = Set<UUID>()
@@ -328,6 +425,12 @@ public struct EuropeanCompetitionState: Codable, Identifiable, Hashable {
             if seen.contains(f.homeClubId) { continue }
             let a = f.homeClubId, b = f.awayClubId
             seen.insert(a); seen.insert(b)
+
+            let legs = roundFixtures.filter {
+                ($0.homeClubId == a && $0.awayClubId == b) ||
+                ($0.homeClubId == b && $0.awayClubId == a)
+            }
+            guard !legs.isEmpty, legs.allSatisfy({ $0.isPlayed }) else { continue }
             winners.append(tieWinner(first: a, second: b, stage: stage))
         }
         return winners

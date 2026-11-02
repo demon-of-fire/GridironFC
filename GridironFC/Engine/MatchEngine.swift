@@ -113,6 +113,8 @@ public struct MatchEngine {
         // 1. Prepare active rosters
         var homeActive = homeClub.startingXIPlayers.map { ActiveMatchPlayer(player: $0) }
         var awayActive = awayClub.startingXIPlayers.map { ActiveMatchPlayer(player: $0) }
+        var homeDeparted: [ActiveMatchPlayer] = []
+        var awayDeparted: [ActiveMatchPlayer] = []
         var homeBench = homeClub.substitutePlayers
         var awayBench = awayClub.substitutePlayers
         
@@ -214,7 +216,8 @@ public struct MatchEngine {
                     club: homeClub,
                     isHome: true,
                     minute: minute,
-                    events: &events
+                    events: &events,
+                    departed: &homeDeparted
                 )
                 tryPerformSubstitution(
                     activePlayers: &awayActive,
@@ -224,7 +227,8 @@ public struct MatchEngine {
                     club: awayClub,
                     isHome: false,
                     minute: minute,
-                    events: &events
+                    events: &events,
+                    departed: &awayDeparted
                 )
             }
             
@@ -407,7 +411,9 @@ public struct MatchEngine {
         }
         
         // 7. Full-time whistle event
-        let motm = determineManOfTheMatch(homeActive: homeActive, awayActive: awayActive)
+        let homeAll = homeActive + homeDeparted
+        let awayAll = awayActive + awayDeparted
+        let motm = determineManOfTheMatch(homeActive: homeAll, awayActive: awayAll)
         let ftSummary = Commentary.fullTimeSummary(
             home: homeClub,
             away: awayClub,
@@ -458,8 +464,8 @@ public struct MatchEngine {
         
         // Player ratings map
         var ratingsMap: [UUID: Double] = [:]
-        for ap in homeActive { ratingsMap[ap.player.id] = (ap.currentRating * 10).rounded() / 10 }
-        for ap in awayActive { ratingsMap[ap.player.id] = (ap.currentRating * 10).rounded() / 10 }
+        for ap in homeAll { ratingsMap[ap.player.id] = (ap.currentRating * 10).rounded() / 10 }
+        for ap in awayAll { ratingsMap[ap.player.id] = (ap.currentRating * 10).rounded() / 10 }
         
         let attendancePct = Double.random(in: 0.78...0.98)
         let attendance = Int(Double(homeClub.stadiumCapacity) * attendancePct)
@@ -481,8 +487,8 @@ public struct MatchEngine {
         )
         
         // 9. Sync results back to clubs and update players' persistent models
-        applyMatchToClub(club: &homeClub, activePlayers: homeActive, opponentGoals: awayGoals, motmId: motm?.player.id)
-        applyMatchToClub(club: &awayClub, activePlayers: awayActive, opponentGoals: homeGoals, motmId: motm?.player.id)
+        applyMatchToClub(club: &homeClub, activePlayers: homeAll, opponentGoals: awayGoals, motmId: motm?.player.id)
+        applyMatchToClub(club: &awayClub, activePlayers: awayAll, opponentGoals: homeGoals, motmId: motm?.player.id)
         
         homeClub.seasonResults.append(matchResult)
         awayClub.seasonResults.append(matchResult)
@@ -543,8 +549,8 @@ public struct MatchEngine {
         
         // Opposition goalkeeper
         let defendingSquad = isHomeAttacking ? awayActive : homeActive
-        let gkIdx = defendingSquad.firstIndex(where: { $0.player.primaryPosition == .GK && !$0.isSentOff }) ?? 0
-        let gk = defendingSquad[gkIdx]
+        guard let gk = defendingSquad.first(where: { $0.player.primaryPosition == .GK && !$0.isSentOff }) ??
+            defendingSquad.first(where: { !$0.isSentOff }) ?? defendingSquad.first else { return }
         let gkReflexes = Double(gk.player.attributes.reflexes)
         let gkPositioning = Double(gk.player.attributes.gkPositioning)
         let gkSkill = (gkReflexes * 0.6 + gkPositioning * 0.4) / 100.0
@@ -619,9 +625,13 @@ public struct MatchEngine {
             }
             
             if isHomeAttacking {
-                awayActive[gkIdx].currentRating = min(10.0, awayActive[gkIdx].currentRating + 0.3)
+                if let gkIdx = awayActive.firstIndex(where: { $0.player.id == gk.player.id }) {
+                    awayActive[gkIdx].currentRating = min(10.0, awayActive[gkIdx].currentRating + 0.3)
+                }
             } else {
-                homeActive[gkIdx].currentRating = min(10.0, homeActive[gkIdx].currentRating + 0.3)
+                if let gkIdx = homeActive.firstIndex(where: { $0.player.id == gk.player.id }) {
+                    homeActive[gkIdx].currentRating = min(10.0, homeActive[gkIdx].currentRating + 0.3)
+                }
             }
             
             let commentary = Commentary.save(
@@ -712,8 +722,9 @@ public struct MatchEngine {
         
         // Find designated or best corner taker
         let cornerTakerId = attackingClub.tactics.cornerTaker
-        let taker = attackingSquad.first { $0.player.id == cornerTakerId && !$0.isSentOff } ??
-            attackingSquad.max(by: { $0.player.attributes.crossing < $1.player.attributes.crossing })!
+        guard let taker = attackingSquad.first(where: { $0.player.id == cornerTakerId && !$0.isSentOff }) ??
+            attackingSquad.max(by: { $0.player.attributes.crossing < $1.player.attributes.crossing }) ??
+            attackingSquad.first else { return }
         
         // Find top aerial threat
         let aerialTargets = attackingSquad.filter { $0.player.id != taker.player.id && !$0.isSentOff }
@@ -807,8 +818,9 @@ public struct MatchEngine {
         let attackingSquad = isHomeAttacking ? homeActive : awayActive
         
         let freeKickTakerId = attackingClub.tactics.freeKickTaker
-        let taker = attackingSquad.first { $0.player.id == freeKickTakerId && !$0.isSentOff } ??
-            attackingSquad.max(by: { $0.player.attributes.freeKicks < $1.player.attributes.freeKicks })!
+        guard let taker = attackingSquad.first(where: { $0.player.id == freeKickTakerId && !$0.isSentOff }) ??
+            attackingSquad.max(by: { $0.player.attributes.freeKicks < $1.player.attributes.freeKicks }) ??
+            attackingSquad.first else { return }
         
         let fkSkill = Double(taker.player.attributes.freeKicks)
         let chanceXG = 0.07 + (fkSkill / 400.0)
@@ -1029,10 +1041,12 @@ public struct MatchEngine {
         let defendingSquad = isHomeKicking ? awayActive : homeActive
         
         let penaltyTakerId = kickingClub.tactics.penaltyTaker
-        let taker = kickingSquad.first { $0.player.id == penaltyTakerId && !$0.isSentOff } ??
-            kickingSquad.max(by: { $0.player.attributes.penalties < $1.player.attributes.penalties })!
+        guard let taker = kickingSquad.first(where: { $0.player.id == penaltyTakerId && !$0.isSentOff }) ??
+            kickingSquad.max(by: { $0.player.attributes.penalties < $1.player.attributes.penalties }) ??
+            kickingSquad.first else { return }
         
-        let gk = defendingSquad.first { $0.player.primaryPosition == .GK && !$0.isSentOff } ?? defendingSquad[0]
+        guard let gk = defendingSquad.first(where: { $0.player.primaryPosition == .GK && !$0.isSentOff }) ??
+            defendingSquad.first(where: { !$0.isSentOff }) ?? defendingSquad.first else { return }
         
         let penaltySkill = Double(taker.player.attributes.penalties)
         let composure = Double(taker.player.attributes.composure)
@@ -1115,11 +1129,15 @@ public struct MatchEngine {
             )
         )
         
+        guard !homeActive.isEmpty, !awayActive.isEmpty else { return }
         var homeTakers = homeActive.filter { !$0.isSentOff }.sorted { $0.player.attributes.penalties > $1.player.attributes.penalties }
         var awayTakers = awayActive.filter { !$0.isSentOff }.sorted { $0.player.attributes.penalties > $1.player.attributes.penalties }
+        if homeTakers.isEmpty { homeTakers = homeActive }
+        if awayTakers.isEmpty { awayTakers = awayActive }
+        guard !homeTakers.isEmpty, !awayTakers.isEmpty else { return }
         
-        let homeGk = homeActive.first { $0.player.primaryPosition == .GK } ?? homeActive[0]
-        let awayGk = awayActive.first { $0.player.primaryPosition == .GK } ?? awayActive[0]
+        guard let homeGk = homeActive.first(where: { $0.player.primaryPosition == .GK }) ?? homeActive.first,
+              let awayGk = awayActive.first(where: { $0.player.primaryPosition == .GK }) ?? awayActive.first else { return }
         
         var homeShootoutScore = 0
         var awayShootoutScore = 0
@@ -1244,7 +1262,8 @@ public struct MatchEngine {
         club: Club,
         isHome: Bool,
         minute: Int,
-        events: inout [MatchEvent]
+        events: inout [MatchEvent],
+        departed: inout [ActiveMatchPlayer]
     ) {
         guard subsUsed < maxSubs && !bench.isEmpty else { return }
         
@@ -1262,6 +1281,7 @@ public struct MatchEngine {
         
         // Mark outgoing
         activePlayers[outIdx].isSubstitutedOut = true
+        departed.append(playerToSub)
         
         // Insert fresh legs into active match players
         let freshSub = ActiveMatchPlayer(player: incomingPlayer, currentFatigue: 0.0, currentRating: 6.0)

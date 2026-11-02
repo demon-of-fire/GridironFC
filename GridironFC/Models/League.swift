@@ -224,9 +224,12 @@ public struct FixtureGenerator {
         competitionName: String,
         startDateString: String = "2024-08-10"
     ) -> [Fixture] {
-        var clubs = clubIds
-        if clubs.count % 2 != 0 {
-            // Need even number of teams for standard round robin
+        let clubs = clubIds
+        // The rotation algorithm below indexes both the fixed club and a
+        // rotating opponent.  Empty and one-club leagues are invalid inputs,
+        // but returning no fixtures keeps a malformed import from crashing the
+        // app during bootstrap.
+        guard clubs.count >= 2, clubs.count.isMultiple(of: 2) else {
             return []
         }
         

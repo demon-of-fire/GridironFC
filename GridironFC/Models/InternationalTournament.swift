@@ -193,9 +193,32 @@ public enum InternationalTournament {
             return !groupFixtures.isEmpty && groupFixtures.allSatisfy { $0.isPlayed }
         }
 
+        /// Number of qualifiers that contest the knockout bracket. The bracket
+        /// always uses a power-of-two field (4, 8 or 16) so every round can be
+        /// completed without byes.
+        private var knockoutFieldSize: Int {
+            let available = groupQualifiers().count
+            if available >= 16 { return 16 }
+            if available >= 8 { return 8 }
+            if available >= 4 { return 4 }
+            return 0
+        }
+
         /// The knockout round currently in progress, if any.
         public var activeKnockoutRound: String? {
-            for round in Self.knockoutOrder {
+            let rounds: [String]
+            switch knockoutFieldSize {
+            case 16...:
+                rounds = Self.knockoutOrder
+            case 8:
+                rounds = ["Quarter-Final", "Semi-Final", "Third Place", "Final"]
+            case 4:
+                rounds = ["Semi-Final", "Third Place", "Final"]
+            default:
+                rounds = []
+            }
+
+            for round in rounds {
                 let roundFixtures = fixtures.filter { $0.stage == round }
                 if roundFixtures.isEmpty { return round }
                 if !roundFixtures.allSatisfy({ $0.isPlayed }) { return round }
@@ -220,12 +243,34 @@ public enum InternationalTournament {
                 fixtures[idx].isPlayed = true
             }
 
-            if stage == .groupStage && groupStageComplete {
+            if stage == .groupStage {
+                guard groupStageComplete else { return }
                 stage = .knockout
                 generateNextKnockoutRound()
-            } else if stage == .knockout && currentRoundComplete {
+                return
+            }
+
+            guard stage == .knockout else { return }
+
+            // The active round can legitimately have no fixtures when the previous
+            // round has just finished; generate it now instead of waiting forever.
+            guard let round = activeKnockoutRound else {
+                finishTournament()
+                return
+            }
+            let roundFixtures = fixtures.filter { $0.stage == round }
+            if roundFixtures.isEmpty || roundFixtures.allSatisfy({ $0.isPlayed }) {
                 generateNextKnockoutRound()
             }
+        }
+
+        private mutating func finishTournament() {
+            guard stage != .complete else { return }
+            stage = .complete
+            guard let final = fixtures.first(where: { $0.stage == "Final" && $0.isPlayed }) else { return }
+            let ranked = participantIds
+            let ranking: (String) -> Int = { id in ranked.firstIndex(of: id) ?? 999 }
+            championId = tieWinner(final.homeTeamId, final.awayTeamId, stage: "Final", ranking: ranking)
         }
 
         /// Winner of a single-elimination tie (draws resolved by higher-ranked team).
@@ -241,48 +286,62 @@ public enum InternationalTournament {
 
         private mutating func generateNextKnockoutRound() {
             guard let round = activeKnockoutRound else {
-                stage = .complete
-                if let final = fixtures.first(where: { $0.stage == "Final" && $0.isPlayed }) {
-                    championId = final.homeGoals >= final.awayGoals ? final.homeTeamId : final.awayTeamId
-                }
+                finishTournament()
                 return
             }
 
             var newFixtures: [Fixture] = []
-            let ranked = participantIds.sorted { ($0) < ($1) }   // placeholder ordering
+            // `participantIds` is seeded in FIFA-ranking order by the builder, so
+            // it doubles as the tie-break ranking for drawn knockout matches.
+            let ranked = participantIds
             let ranking: (String) -> Int = { id in ranked.firstIndex(of: id) ?? 999 }
 
             switch round {
             case "Round of 16":
-                let qualifiers = groupQualifiers()
+                let qualifiers = Array(groupQualifiers().prefix(16))
                 guard qualifiers.count >= 16 else { return }
-                // Pair each group winner with a runner-up from another group.
-                let winners = stridedQualifiers(qualifiers, index: 0)
-                let runnersUp = stridedQualifiers(qualifiers, index: 1)
+                let winners = Array(qualifiers.prefix(8))
+                let runnersUp = Array(qualifiers.suffix(8))
                 for i in 0..<8 {
                     let home = winners[i]
                     let away = runnersUp[(i + 1) % runnersUp.count]
                     newFixtures.append(Fixture(homeTeamId: home, awayTeamId: away, stage: round))
                 }
 
-            case "Quarter-Final", "Semi-Final", "Third Place":
-                let prev: String
-                switch round {
-                case "Quarter-Final": prev = "Round of 16"
-                case "Semi-Final": prev = "Quarter-Final"
-                default: prev = "Semi-Final"
+            case "Quarter-Final":
+                let contenders: [String]
+                if fixtures.contains(where: { $0.stage == "Round of 16" }) {
+                    contenders = knockoutWinners(from: "Round of 16", ranking: ranking)
+                } else {
+                    contenders = Array(groupQualifiers().prefix(8))
                 }
-                let winners = knockoutWinners(from: prev, ranking: ranking)
-                if round == "Third Place" {
-                    // Losers of the semis; fall back to reusing winners if unavailable.
-                    let losers = knockoutLosers(from: "Semi-Final")
-                    if losers.count >= 2 {
-                        newFixtures.append(Fixture(homeTeamId: losers[0], awayTeamId: losers[1], stage: round))
-                    }
-                    break
+                guard contenders.count >= 4 else { return }
+                let field = Array(contenders.prefix(8))
+                for i in 0..<(field.count / 2) {
+                    newFixtures.append(
+                        Fixture(homeTeamId: field[i], awayTeamId: field[field.count - 1 - i], stage: round)
+                    )
                 }
-                for i in stride(from: 0, to: winners.count - 1, by: 2) {
-                    newFixtures.append(Fixture(homeTeamId: winners[i], awayTeamId: winners[i + 1], stage: round))
+
+            case "Semi-Final":
+                let contenders: [String]
+                if fixtures.contains(where: { $0.stage == "Quarter-Final" }) {
+                    contenders = knockoutWinners(from: "Quarter-Final", ranking: ranking)
+                } else {
+                    contenders = Array(groupQualifiers().prefix(4))
+                }
+                guard contenders.count >= 4 else { return }
+                let field = Array(contenders.prefix(4))
+                for i in 0..<(field.count / 2) {
+                    newFixtures.append(
+                        Fixture(homeTeamId: field[i], awayTeamId: field[field.count - 1 - i], stage: round)
+                    )
+                }
+
+            case "Third Place":
+                let losers = knockoutLosers(from: "Semi-Final", ranking: ranking)
+                if losers.count >= 2 {
+                    newFixtures.append(Fixture(homeTeamId: losers[0], awayTeamId: losers[1], stage: round))
                 }
 
             case "Final":
@@ -302,27 +361,29 @@ public enum InternationalTournament {
         private func groupQualifiers() -> [String] {
             var winners: [String] = []
             var runnersUp: [String] = []
+            var thirdPlaced: [GroupRow] = []
             for group in groupNames {
                 let table = table(forGroup: group)
                 if table.count >= 1 { winners.append(table[0].teamId) }
                 if table.count >= 2 { runnersUp.append(table[1].teamId) }
+                if table.count >= 3 { thirdPlaced.append(table[2]) }
+            }
+            // If 6 groups (24 teams like EURO/AFCON/Asian Cup), take top 4 third-placed teams
+            // to make a full 16-nation knockout bracket.
+            if winners.count == 6 && runnersUp.count == 6 {
+                let sortedThird = thirdPlaced.sorted(by: GroupRow.sort)
+                let bestThird = sortedThird.prefix(4).map { $0.teamId }
+                return winners + runnersUp + bestThird
             }
             return winners + runnersUp
         }
 
-        private func stridedQualifiers(_ qualifiers: [String], index: Int) -> [String] {
-            let half = qualifiers.count / 2
-            let winners = Array(qualifiers.prefix(half))
-            let runnersUp = Array(qualifiers.suffix(half))
-            return index == 0 ? winners : runnersUp
-        }
-
         private func knockoutWinners(from stage: String, ranking: (String) -> Int) -> [String] {
-            let roundFixtures = fixtures.filter { $0.stage == stage }
+            let roundFixtures = fixtures.filter { $0.stage == stage && $0.isPlayed }
             var seen = Set<String>()
             var winners: [String] = []
             for f in roundFixtures {
-                if seen.contains(f.homeTeamId) || f.stage == "Third Place" { continue }
+                if seen.contains(f.homeTeamId) { continue }
                 let a = f.homeTeamId, b = f.awayTeamId
                 seen.insert(a); seen.insert(b)
                 winners.append(tieWinner(a, b, stage: stage, ranking: ranking))
@@ -330,12 +391,12 @@ public enum InternationalTournament {
             return winners
         }
 
-        private func knockoutLosers(from stage: String) -> [String] {
+        private func knockoutLosers(from stage: String, ranking: (String) -> Int) -> [String] {
             let roundFixtures = fixtures.filter { $0.stage == stage && $0.isPlayed }
             var losers: [String] = []
             for f in roundFixtures {
-                if f.homeGoals > f.awayGoals { losers.append(f.awayTeamId) }
-                else if f.awayGoals > f.homeGoals { losers.append(f.homeTeamId) }
+                let winner = tieWinner(f.homeTeamId, f.awayTeamId, stage: stage, ranking: ranking)
+                losers.append(winner == f.homeTeamId ? f.awayTeamId : f.homeTeamId)
             }
             return losers
         }

@@ -113,9 +113,16 @@ public final class DataLoader {
         result.reserveCapacity(clubs.count)
         for (idx, club) in clubs.enumerated() {
             var updated = club
+            var seenKeys = Set<String>()
             updated.players = club.players.filter { player in
-                keeper[player.dedupeKey] == idx
+                // Keep only the copy at the winning club, and guard against the
+                // same player being listed twice inside a single club.
+                keeper[player.dedupeKey] == idx && seenKeys.insert(player.dedupeKey).inserted
             }
+            // Removing players can leave stale IDs in the XI/bench and an
+            // outdated wage bill, so repair both before returning the club.
+            updated.ensureTacticalIntegrity()
+            updated.finances.currentWageBill = updated.totalWeeklyWageBill
             result.append(updated)
         }
         return result

@@ -42,10 +42,15 @@ public enum InternationalTournamentBuilder {
         }
 
         let field = Array(ranked.prefix(kind.teamCount))
-        guard field.count >= 8 else { return nil }
+        // A four-nation field is the smallest bracket that can produce a final
+        // (two semi-finals), so smaller confederations simply have no tournament.
+        guard field.count >= 4 else { return nil }
 
-        // Draw into groups serpentine-style for balanced pools.
-        let groupCount = kind.groupCount
+        // Draw into groups serpentine-style for balanced pools. Cap the group
+        // count by the available field so every group has at least two nations;
+        // smaller fields then use a compact knockout bracket (see
+        // `InternationalTournament.State.knockoutFieldSize`).
+        let groupCount = min(kind.groupCount, max(2, field.count / 2))
         var groups: [[NationalTeam]] = Array(repeating: [], count: groupCount)
         for (i, team) in field.enumerated() {
             let round = i / groupCount

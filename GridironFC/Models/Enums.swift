@@ -1184,7 +1184,6 @@ public enum SeasonPhase: String, Codable, CaseIterable, Identifiable, Hashable {
 public enum GameMode: String, Codable, CaseIterable, Identifiable, Hashable {
     case createClub
     case manageClub
-    case unemployed
     
     public var id: String { rawValue }
     
@@ -1192,7 +1191,6 @@ public enum GameMode: String, Codable, CaseIterable, Identifiable, Hashable {
         switch self {
         case .createClub: return "Own a New Club"
         case .manageClub: return "Manage Existing Club"
-        case .unemployed: return "Start Unemployed"
         }
     }
     
@@ -1202,9 +1200,24 @@ public enum GameMode: String, Codable, CaseIterable, Identifiable, Hashable {
             return "Create and own a club: appoint managers, build a staff team and invest in your facilities."
         case .manageClub:
             return "Take charge of an existing English club with real squads and established expectations."
-        case .unemployed:
-            return "Begin without a club and wait for job offers. Work your way up from the bottom."
         }
+    }
+    
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        if raw == "unemployed" {
+            self = .manageClub
+        } else if let mode = GameMode(rawValue: raw) {
+            self = mode
+        } else {
+            self = .createClub
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 

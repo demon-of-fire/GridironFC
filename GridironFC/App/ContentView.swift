@@ -272,13 +272,13 @@ public struct MainMenuView: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("GridironFC Football Management")
                 
-                if gameState.userClub != nil {
+                if gameState.userClub != nil || (gameState.gameMode == .manageClub && gameState.isUnemployed) {
                     Button(action: {
-                        gameState.currentScreen = .dashboard
+                        gameState.currentScreen = gameState.userClub == nil ? .jobOffers : .dashboard
                     }) {
                         HStack {
                             Image(systemName: "play.circle.fill")
-                            Text("Continue Career — \(gameState.userClub?.name ?? "")")
+                            Text("Continue Career — \(gameState.userClub?.name ?? "Job Search")")
                                 .fontWeight(.semibold)
                                 .lineLimit(1)
                         }
@@ -288,7 +288,7 @@ public struct MainMenuView: View {
                         .foregroundStyle(.white)
                         .clipShape(RoundedRectangle(cornerRadius: 14))
                     }
-                    .accessibilityLabel("Continue career with \(gameState.userClub?.name ?? "your club")")
+                    .accessibilityLabel("Continue career\(gameState.userClub.map { " with \($0.name)" } ?? " in the job market")")
                 }
                 
                 VStack(spacing: 14) {
@@ -381,7 +381,6 @@ public struct GameModeCard: View {
         switch mode {
         case .createClub: return "shield.lefthalf.filled"
         case .manageClub: return "person.badge.shield.checkmark.fill"
-        case .unemployed: return "briefcase.fill"
         }
     }
 }
@@ -484,15 +483,6 @@ public struct ClubCreationView: View {
                     ) != nil else {
                         creationError = "That club is no longer available to replace. Please choose another club."
                         return
-                    }
-                    
-                    // Assign generated squad to the user's club
-                    if let userClub = gameState.userClub {
-                        var updatedUserClub = userClub
-                        updatedUserClub.players = DataLoader.generateProceduralSquad(targetCount: 22, tier: .leagueTwo)
-                        updatedUserClub.autoPickStartingXI()
-                        gameState.clubs.removeAll { $0.id == updatedUserClub.id }
-                        gameState.clubs.append(updatedUserClub)
                     }
                     
                     try? SaveManager.shared.autoSave(gameState: gameState)
@@ -659,7 +649,6 @@ public struct ManagerCreationView: View {
     /// Reputation the manager starts with, seeded by the chosen career mode.
     private var reputationForMode: Int {
         switch gameState.gameMode {
-        case .unemployed: return 15
         case .createClub: return 10
         case .manageClub: return 40
         }
@@ -751,13 +740,6 @@ public struct ManagerCreationView: View {
             gameState.currentScreen = .clubCreation
         case .manageClub:
             gameState.currentScreen = .clubSelect
-        case .unemployed:
-            // No club; generate an initial slate of job offers and drop the user
-            // straight into the Job Offers screen.
-            gameState.goUnemployed()
-            gameState.generateJobOffers(maxCount: 5)
-            try? SaveManager.shared.autoSave(gameState: gameState)
-            gameState.currentScreen = .jobOffers
         }
     }
 }
@@ -815,7 +797,7 @@ public struct JobOffersView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Done") {
-                    gameState.currentScreen = gameState.userClub == nil ? .jobOffers : .dashboard
+                    gameState.currentScreen = .dashboard
                 }
                 .accessibilityLabel("Close job offers")
             }
@@ -867,6 +849,7 @@ public struct JobOffersView: View {
 
 public struct ManagerProfileView: View {
     @Environment(GameState.self) private var gameState
+    @State private var showResignationConfirmation = false
 
     public var body: some View {
         List {
@@ -940,13 +923,37 @@ public struct ManagerProfileView: View {
                     }
                 }
             }
+
+            if gameState.gameMode == .manageClub, gameState.userClub != nil {
+                Section("Career Options") {
+                    Button("Resign From Current Club", role: .destructive) {
+                        showResignationConfirmation = true
+                    }
+                    .accessibilityHint("Leaves your current club and opens the job market")
+                }
+            }
         }
         .navigationTitle("My Profile")
         .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog(
+            "Resign From Your Current Club?",
+            isPresented: $showResignationConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Resign", role: .destructive) {
+                gameState.goUnemployed()
+                gameState.generateJobOffers(maxCount: 5, excludeUserClub: false)
+                try? SaveManager.shared.autoSave(gameState: gameState)
+                gameState.currentScreen = .jobOffers
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You will leave your current role and enter the job market. Your managerial history will be retained.")
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Done") {
-                    gameState.currentScreen = gameState.userClub == nil ? .jobOffers : .dashboard
+                    gameState.currentScreen = .dashboard
                 }
                 .accessibilityLabel("Close profile")
             }
@@ -1351,6 +1358,30 @@ public struct OwnerClubView: View {
                     .accessibilityHint("Adjusts the board's balance between transfer and wage investment")
                     LabeledContent("Wage allocation", value: "\(gameState.owner.budgetAllocation.wageBudgetPercent)%")
                 }
+                Section("Legacy Milestones") {
+                    LabeledContent("Legacy points", value: "\(gameState.owner.legacyPoints)")
+                    Text("Unlock milestones by running the club well. Each one awards bonus legacy points for board investments.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ForEach(gameState.owner.milestones) { milestone in
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: milestone.isUnlocked ? "checkmark.seal.fill" : "lock.fill")
+                                .foregroundStyle(milestone.isUnlocked ? Color.green : Color.secondary)
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(milestone.title).fontWeight(.semibold)
+                                Text(milestone.detail).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 8)
+                            Text("+\(milestone.bonusPoints)")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(milestone.isUnlocked ? Color.green : Color.secondary)
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("\(milestone.title). \(milestone.detail). \(milestone.isUnlocked ? "Unlocked" : "Locked"). \(milestone.bonusPoints) bonus legacy points.")
+                    }
+                }
                 Section("Commercial Partners") {
                     if gameState.owner.sponsorshipDeals.isEmpty {
                         Text("No commercial partners signed yet.").foregroundStyle(.secondary)
@@ -1646,7 +1677,7 @@ public struct DashboardView: View {
         if let fixture = gameState.nextUserFixture {
             return "Next: Matchweek \(fixture.matchWeek) • \(fixture.date)"
         }
-        return "Advance to the next calendar week"
+        return "No fixtures remaining — advance to the end of the season"
     }
 
     private var isMatchDay: Bool {
@@ -2557,7 +2588,9 @@ public struct MatchDayView: View {
                     .accessibilityLabel("Launch live commentary match simulation")
                     
                     Button(action: {
-                        // Quick instant simulation
+                        // Quick instant simulation. The team talk must be applied
+                        // before kick-off, exactly as it is in Live Commentary.
+                        gameState.applyTeamTalkIfNeeded()
                         if let idx = gameState.season.fixtures.firstIndex(where: { $0.id == fixture.id }) {
                             gameState.simulateMatch(fixture: &gameState.season.fixtures[idx])
                             gameState.finishMatchweekAfterUserMatch()
@@ -3685,7 +3718,7 @@ public struct InternationalHubView: View {
                     }
                 } else {
                     Section(header: Text("Knockout Bracket")) {
-                        ForEach(state.fixtures.filter { $0.stage.hasPrefix("Round") || $0.stage.contains("Final") }) { fx in
+                        ForEach(state.fixtures.filter { !$0.stage.hasPrefix("Group ") }) { fx in
                             let home = gameState.nationalTeam(withId: fx.homeTeamId)?.name ?? fx.homeTeamId
                             let away = gameState.nationalTeam(withId: fx.awayTeamId)?.name ?? fx.awayTeamId
                             HStack {

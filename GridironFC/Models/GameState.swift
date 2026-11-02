@@ -314,8 +314,16 @@ public final class GameState: Codable {
     @discardableResult
     public func advanceCalendar() -> Bool {
         if isEndOfSeason { return false }
-        guard let userClubId = userClubId,
-              let nextFixture = season.nextFixture(forClub: userClubId) else {
+        guard let userClubId = userClubId else { return false }
+        guard let nextFixture = season.nextFixture(forClub: userClubId) else {
+            // The user's club has completed all of its fixtures for the campaign.
+            // Simulate the rest of the world in one pass so the user is not forced
+            // to tap Continue once per remaining matchweek.
+            var weeksSimulated = 0
+            while !isEndOfSeason && weeksSimulated < 100 {
+                advanceWeek()
+                weeksSimulated += 1
+            }
             return false
         }
         
@@ -592,6 +600,15 @@ public final class GameState: Codable {
         var homeClub = clubs[homeIdx]
         var awayClub = clubs[awayIdx]
         
+        // Snapshot pre-match bans. Players who were already suspended when the
+        // fixture kicked off have now served one match of that ban.
+        let homeSuspensionsBefore = homeClub.players
+            .filter { $0.suspendedMatches > 0 }
+            .reduce(into: [UUID: Int]()) { $0[$1.id] = $1.suspendedMatches }
+        let awaySuspensionsBefore = awayClub.players
+            .filter { $0.suspendedMatches > 0 }
+            .reduce(into: [UUID: Int]()) { $0[$1.id] = $1.suspendedMatches }
+        
         let config = MatchEngine.SimulationConfig(
             neutralVenue: false,
             matchWeek: fixture.matchWeek,
@@ -602,8 +619,18 @@ public final class GameState: Codable {
         
         let result = MatchEngine.simulateFullMatch(home: &homeClub, away: &awayClub, config: config)
         
-        homeClub.seasonResults.append(result)
-        awayClub.seasonResults.append(result)
+        for pIdx in homeClub.players.indices {
+            let id = homeClub.players[pIdx].id
+            if let before = homeSuspensionsBefore[id] {
+                homeClub.players[pIdx].suspendedMatches = max(0, min(homeClub.players[pIdx].suspendedMatches, before - 1))
+            }
+        }
+        for pIdx in awayClub.players.indices {
+            let id = awayClub.players[pIdx].id
+            if let before = awaySuspensionsBefore[id] {
+                awayClub.players[pIdx].suspendedMatches = max(0, min(awayClub.players[pIdx].suspendedMatches, before - 1))
+            }
+        }
         
         clubs[homeIdx] = homeClub
         clubs[awayIdx] = awayClub
@@ -612,7 +639,11 @@ public final class GameState: Codable {
         fixture.result = result
 
         if fixture.involves(clubId: userClubId ?? UUID()) {
-            updateBoardConfidence(after: result, userWasHome: fixture.homeClubId == userClubId)
+            if gameMode == .createClub {
+                updateOwnerMatchPerformance(after: result, userWasHome: fixture.homeClubId == userClubId)
+            } else {
+                updateBoardConfidence(after: result, userWasHome: fixture.homeClubId == userClubId)
+            }
         }
     }
     
@@ -785,7 +816,8 @@ public final class GameState: Codable {
     /// The selling club evaluates the (possibly countered) fee.
     private func resolveClubFee(at idx: Int, player: Player, userClubId: UUID) {
         var offer = pendingTransferOffers[idx]
-        guard let sellerIdx = clubs.firstIndex(where: { $0.id == offer.fromClubId }) else {
+        guard let buyerIdx = clubs.firstIndex(where: { $0.id == userClubId }),
+              let sellerIdx = clubs.firstIndex(where: { $0.id == offer.fromClubId }) else {
             offer.status = .rejected
             pendingTransferOffers[idx] = offer
             return
@@ -798,7 +830,7 @@ public final class GameState: Codable {
         // random accept; lowballs are rejected.
         if bid >= asking {
             offer.status = .completed
-            completeSigning(player: player, buyerIdx: clubs.firstIndex(where: { $0.id == userClubId })!, sellerIdx: sellerIdx, fee: offer.fee, wage: offer.offeredWage ?? player.wage, years: offer.contractYears ?? 3)
+            completeSigning(player: player, buyerIdx: buyerIdx, sellerIdx: sellerIdx, fee: offer.fee, wage: offer.offeredWage ?? player.wage, years: offer.contractYears ?? 3)
             completeOfferMessage(offer, player: player)
             pendingTransferOffers[idx] = offer
             return
@@ -808,7 +840,7 @@ public final class GameState: Codable {
             // Close enough — the club usually accepts, sometimes counters once more.
             if offer.negotiationRound >= 2 || Double.random(in: 0...1) < 0.6 {
                 offer.status = .completed
-                completeSigning(player: player, buyerIdx: clubs.firstIndex(where: { $0.id == userClubId })!, sellerIdx: sellerIdx, fee: offer.fee, wage: offer.offeredWage ?? player.wage, years: offer.contractYears ?? 3)
+                completeSigning(player: player, buyerIdx: buyerIdx, sellerIdx: sellerIdx, fee: offer.fee, wage: offer.offeredWage ?? player.wage, years: offer.contractYears ?? 3)
                 completeOfferMessage(offer, player: player)
             } else {
                 issueCounter(at: idx, offer: offer, seller: seller, player: player)
@@ -1281,7 +1313,7 @@ public final class GameState: Codable {
             freeAgents.append(player)
         }
         
-        let userClub = Club(
+        var userClub = Club(
             name: name,
             shortName: shortName.uppercased(),
             stadium: stadium,
@@ -1295,6 +1327,16 @@ public final class GameState: Codable {
             players: [],
             manager: gameMode == .createClub ? "Interim Manager" : manager.fullName
         )
+
+        // Found a senior squad immediately so the club is playable from day one.
+        // The wage bill is recomputed after the squad is assigned (the Club
+        // initializer only sees the empty player list).
+        userClub.players = DataLoader.generateProceduralSquad(
+            targetCount: 22,
+            tier: replacedClub.leagueTier
+        )
+        userClub.autoPickStartingXI()
+        userClub.finances.currentWageBill = userClub.totalWeeklyWageBill
         
         // Substitute in clubs array
         clubs[replacedIdx] = userClub
@@ -1316,6 +1358,27 @@ public final class GameState: Codable {
                 season.fixtures[fIdx].awayClubId = userClub.id
             }
         }
+
+        // European competitions are seeded when the world is bootstrapped.
+        // Replacing a club after that point used to leave their participant and
+        // fixture IDs pointing at a club which no longer exists.  Preserve the
+        // qualification slot, but transfer it to the newly founded club.
+        for competitionIndex in europeanCompetitions.indices {
+            europeanCompetitions[competitionIndex].participantClubIds = europeanCompetitions[competitionIndex].participantClubIds.map {
+                $0 == replaceClubId ? userClub.id : $0
+            }
+            for fixtureIndex in europeanCompetitions[competitionIndex].fixtures.indices {
+                if europeanCompetitions[competitionIndex].fixtures[fixtureIndex].homeClubId == replaceClubId {
+                    europeanCompetitions[competitionIndex].fixtures[fixtureIndex].homeClubId = userClub.id
+                }
+                if europeanCompetitions[competitionIndex].fixtures[fixtureIndex].awayClubId == replaceClubId {
+                    europeanCompetitions[competitionIndex].fixtures[fixtureIndex].awayClubId = userClub.id
+                }
+            }
+            if europeanCompetitions[competitionIndex].championClubId == replaceClubId {
+                europeanCompetitions[competitionIndex].championClubId = userClub.id
+            }
+        }
         
         addNews(
             headline: "\(userClub.name) Enters \(userClub.leagueTier.displayName)!",
@@ -1326,6 +1389,7 @@ public final class GameState: Codable {
             sender: "The Board — \(userClub.name)"
         )
         if gameMode != .createClub { seedManagerInbox() }
+        seedAcademies()
         
         return userClub
     }
@@ -1334,8 +1398,13 @@ public final class GameState: Codable {
     /// simulated; the owner then reacts through appointments and investment.
     public func advanceOwnerWeek() {
         guard gameMode == .createClub, userClub != nil else { return }
+        if isEndOfSeason {
+            startNewSeason()
+            try? SaveManager.shared.autoSave(gameState: self)
+            return
+        }
         advanceWeek()
-        owner.legacyPoints += 1
+        checkOwnerWeeklyMilestones()
         try? SaveManager.shared.autoSave(gameState: self)
     }
 
@@ -1454,6 +1523,77 @@ public final class GameState: Codable {
         addNews(headline: "Board Confidence: \(jobSecurity.status)", body: "Confidence is \(jobSecurity.boardConfidence) out of 100 after the result. \(tone)", category: .board, sender: "The Board")
     }
 
+    private func updateOwnerMatchPerformance(after result: MatchResult, userWasHome: Bool) {
+        let goalsFor = userWasHome ? result.homeGoals : result.awayGoals
+        let goalsAgainst = userWasHome ? result.awayGoals : result.homeGoals
+        let won = goalsFor > goalsAgainst
+        let drawn = goalsFor == goalsAgainst
+
+        var pointsEarned = 0
+        if won {
+            pointsEarned += 2
+            owner.supporterConfidence = min(100, owner.supporterConfidence + 3)
+            unlockOwnerMilestone(id: "first_win")
+            if goalsAgainst == 0 {
+                pointsEarned += 1
+                unlockOwnerMilestone(id: "clean_sheet")
+            }
+            if goalsFor >= 3 {
+                pointsEarned += 1
+            }
+        } else if drawn {
+            pointsEarned += 1
+            if goalsAgainst == 0 {
+                pointsEarned += 1
+                unlockOwnerMilestone(id: "clean_sheet")
+            }
+        } else {
+            owner.supporterConfidence = max(0, owner.supporterConfidence - 3)
+        }
+
+        owner.legacyPoints += pointsEarned
+
+        // Check 5 games unbeaten
+        if let userClub = userClub {
+            let recent = userClub.seasonResults.suffix(5)
+            if recent.count == 5 {
+                let unbeaten = recent.allSatisfy { r in
+                    let isHome = r.homeClubId == userClub.id
+                    let gf = isHome ? r.homeGoals : r.awayGoals
+                    let ga = isHome ? r.awayGoals : r.homeGoals
+                    return gf >= ga
+                }
+                if unbeaten {
+                    unlockOwnerMilestone(id: "five_unbeaten")
+                }
+            }
+        }
+    }
+
+    public func unlockOwnerMilestone(id: String) {
+        guard gameMode == .createClub else { return }
+        guard let idx = owner.milestones.firstIndex(where: { $0.id == id && !$0.isUnlocked }) else { return }
+        owner.milestones[idx].isUnlocked = true
+        let ms = owner.milestones[idx]
+        owner.legacyPoints += ms.bonusPoints
+        addNews(
+            headline: "Milestone: \(ms.title)",
+            body: "\(ms.detail). +\(ms.bonusPoints) Legacy Points awarded.",
+            category: .award,
+            sender: "Boardroom"
+        )
+    }
+
+    public func checkOwnerWeeklyMilestones() {
+        guard gameMode == .createClub, let userClub = userClub else { return }
+        if userClub.finances.balance >= 2_500_000 {
+            unlockOwnerMilestone(id: "reserves")
+        }
+        if !owner.sponsorshipDeals.isEmpty {
+            unlockOwnerMilestone(id: "commercial_partner")
+        }
+    }
+
     /// Owner-only budget split. Reallocating cash is capped by available balance,
     /// so the owner cannot manufacture funds by changing a percentage.
     @discardableResult
@@ -1461,9 +1601,15 @@ public final class GameState: Codable {
         guard gameMode == .createClub, let index = clubs.firstIndex(where: { $0.isUserClub }) else { return false }
         let transfer = max(0, min(100, transferPercent))
         owner.budgetAllocation = BudgetAllocation(transferBudgetPercent: transfer, wageBudgetPercent: 100 - transfer)
-        let flexibleCash = max(0, clubs[index].finances.balance / 4)
-        clubs[index].finances.transferBudget = max(clubs[index].finances.transferBudget, flexibleCash * transfer / 100)
-        clubs[index].finances.wageBudget = max(clubs[index].finances.wageBudget, flexibleCash * (100 - transfer) / 100)
+        // Re-split the existing annualised football budget rather than only ever
+        // increasing each pot. Lowering the transfer share therefore actually
+        // reduces the transfer budget and moves the money to wages.
+        let annualWageBudget = clubs[index].finances.wageBudget * 52
+        let totalPool = max(1, clubs[index].finances.transferBudget + annualWageBudget)
+        let newTransferBudget = totalPool * transfer / 100
+        let newAnnualWageBudget = totalPool - newTransferBudget
+        clubs[index].finances.transferBudget = newTransferBudget
+        clubs[index].finances.wageBudget = max(1, newAnnualWageBudget / 52)
         return true
     }
 
@@ -1606,24 +1752,94 @@ public final class GameState: Codable {
             fixtures: allNewFixtures,
             currentDate: preseasonDate
         )
+        activeMatchFixtureId = nil
+        isMatchInProgress = false
 
         // Rebuild the European competitions for the new season.
         europeanCompetitions = EuropeanCompetitionBuilder.build(from: clubs)
         europeanMatchweek = 0
+
+        // Refresh the international calendar so tournaments recur each campaign.
+        if !nationalTeams.isEmpty {
+            internationalTournaments = InternationalTournamentBuilder.build(from: nationalTeams)
+        }
         
-        // Reset player seasonal match statistics
+        // Reset player seasonal match statistics and roll contracts forward.
+        var renewedUserContracts: [String] = []
         for cIdx in 0..<clubs.count {
             clubs[cIdx].seasonResults = []
             for pIdx in 0..<clubs[cIdx].players.count {
                 clubs[cIdx].players[pIdx].seasonStats = SeasonStats()
                 clubs[cIdx].players[pIdx].yellowCards = 0
-                clubs[cIdx].players[pIdx].suspendedMatches = 0
-                // Decrement contract duration
+                // Players age one year each summer. Preseason rest clears injuries
+                // and restores fitness, while sharpness starts below peak because
+                // nobody has played competitive football for several weeks.
+                clubs[cIdx].players[pIdx].age += 1
+                clubs[cIdx].players[pIdx].injury = nil
+                clubs[cIdx].players[pIdx].matchFitness = 100.0
+                clubs[cIdx].players[pIdx].sharpness = 65.0
+                // Suspensions carry across seasons; they are served match by match.
+                // Decrement contract duration.
                 if var contract = clubs[cIdx].players[pIdx].contract {
                     contract.yearsRemaining -= 1
+                    if contract.yearsRemaining <= 0 {
+                        // There is no contract-negotiation flow yet, so keep the
+                        // player at the club on a short extension rather than
+                        // silently deleting them from the squad.
+                        contract.yearsRemaining = 2
+                        if clubs[cIdx].isUserClub {
+                            renewedUserContracts.append(clubs[cIdx].players[pIdx].fullName)
+                        }
+                    }
                     clubs[cIdx].players[pIdx].contract = contract
                 }
             }
+        }
+
+        if !renewedUserContracts.isEmpty {
+            let names = renewedUserContracts.prefix(3).joined(separator: ", ")
+            let remainder = renewedUserContracts.count > 3 ? " and \(renewedUserContracts.count - 3) more" : ""
+            addNews(
+                headline: "Contracts Extended",
+                body: "\(names)\(remainder) have signed short extensions to remain at the club.",
+                category: .board,
+                sender: "Club Secretary"
+            )
+        }
+
+        // Tick down commercial partnerships. Expired deals stop contributing to
+        // the club's annual sponsorship income.
+        if !owner.sponsorshipDeals.isEmpty {
+            var activeDeals: [SponsorshipDeal] = []
+            var expiredValue = 0
+            var expiredNames: [String] = []
+            for var deal in owner.sponsorshipDeals {
+                deal.yearsRemaining -= 1
+                if deal.yearsRemaining > 0 {
+                    activeDeals.append(deal)
+                } else {
+                    expiredValue += deal.annualValue
+                    expiredNames.append(deal.sponsorName)
+                }
+            }
+            owner.sponsorshipDeals = activeDeals
+            if let index = clubs.firstIndex(where: { $0.isUserClub }), expiredValue > 0 {
+                clubs[index].finances.sponsorshipIncome = max(0, clubs[index].finances.sponsorshipIncome - expiredValue)
+            }
+            if !expiredNames.isEmpty {
+                addNews(
+                    headline: "Commercial Deal Expires",
+                    body: "\(expiredNames.joined(separator: ", ")) \(expiredNames.count == 1 ? "has" : "have") reached the end of the agreement. Sign a replacement partner to restore sponsorship income.",
+                    category: .board,
+                    sender: "Commercial Director"
+                )
+            }
+        }
+
+        // Refresh the board's transfer kitty and repair any stale lineups.
+        for cIdx in 0..<clubs.count {
+            clubs[cIdx].finances.rolloverForNewSeason(reputation: clubs[cIdx].reputation)
+            clubs[cIdx].ensureTacticalIntegrity()
         }
         
         // Youth academy: age and develop existing prospects, then perform a new
@@ -1688,6 +1904,26 @@ public final class GameState: Codable {
         var finalTables: [LeagueTier: [LeagueStanding]] = [:]
         for league in leagues {
             finalTables[league.tier] = standings(for: league)
+        }
+
+        // Snapshot the user's campaign before promotions and relegations change
+        // their leagueTier. `recordManagerSeason` needs the club/tier they
+        // actually competed in, not the division they are moving to.
+        var userSeasonSnapshot: (club: Club, position: Int, standing: LeagueStanding, honours: [String])?
+        if gameMode == .manageClub,
+           let userClub = userClub,
+           let table = finalTables[userClub.leagueTier],
+           let position = table.firstIndex(where: { $0.clubId == userClub.id }) {
+            var honours: [String] = []
+            if position == 0 {
+                honours.append("\(userClub.leagueTier.displayName) Champions")
+            }
+            userSeasonSnapshot = (
+                club: userClub,
+                position: position + 1,
+                standing: table[position],
+                honours: honours
+            )
         }
         
         // Accumulate the club movements to apply after computing all tables.
@@ -1779,6 +2015,42 @@ public final class GameState: Codable {
                 )
             }
         }
+
+        // Distribute merit prize money based on final standings.
+        for (tier, table) in finalTables {
+            let topPrize: Int
+            switch tier.level {
+            case 1: topPrize = 28_000_000
+            case 2: topPrize = 10_000_000
+            case 3: topPrize = 3_500_000
+            default: topPrize = 1_500_000
+            }
+            let n = max(1, table.count)
+            for (idx, standing) in table.enumerated() {
+                let ratio = Double(n - idx) / Double(n)
+                let prize = max(100_000, Int(Double(topPrize) * (0.15 + 0.85 * ratio)))
+                if let cIdx = clubs.firstIndex(where: { $0.id == standing.clubId }) {
+                    clubs[cIdx].finances.balance += prize
+                    clubs[cIdx].finances.transferBudget += prize / 2
+                    if standing.clubId == userClubId {
+                        addNews(
+                            headline: "Prize Money: \(Player.formatCurrency(prize)) Awarded",
+                            body: "\(clubs[cIdx].name) banked \(Player.formatCurrency(prize)) for finishing in \(idx + 1)\(standingRankSuffix(idx + 1)) place in \(tier.displayName).",
+                            category: .board,
+                            sender: "League Committee"
+                        )
+                    }
+                }
+            }
+        }
+
+        if let uid = userClubId, gameMode == .createClub {
+            let wasPromoted = promotions.values.contains(where: { $0.contains(uid) }) ||
+                              playOffPromotions.values.contains(where: { $0.contains(uid) })
+            if wasPromoted {
+                unlockOwnerMilestone(id: "promotion")
+            }
+        }
         
         // Crown each tier champion.
         for tier in LeagueTier.allCases {
@@ -1790,20 +2062,17 @@ public final class GameState: Codable {
             )
         }
         
-        // Snapshot the user's season into their managerial career history.
-        if let userClub = userClub, let table = finalTables[userClub.leagueTier],
-           let pos = table.firstIndex(where: { $0.clubId == userClub.id }) {
-            let standing = table[pos]
-            var honours: [String] = []
-            if pos == 0 { honours.append("\(userClub.leagueTier.displayName) Champions") }
+        // Record the user's season into their managerial career history using the
+        // pre-movement snapshot captured above.
+        if let snapshot = userSeasonSnapshot {
             recordManagerSeason(
-                club: userClub,
-                position: pos + 1,
-                played: standing.played,
-                won: standing.won,
-                drawn: standing.drawn,
-                lost: standing.lost,
-                honours: honours
+                club: snapshot.club,
+                position: snapshot.position,
+                played: snapshot.standing.played,
+                won: snapshot.standing.won,
+                drawn: snapshot.standing.drawn,
+                lost: snapshot.standing.lost,
+                honours: snapshot.honours
             )
         }
         
@@ -1819,6 +2088,15 @@ public final class GameState: Codable {
     /// Returns a club's display name, falling back to a placeholder when unknown.
     public func clubName(for id: UUID) -> String {
         return clubs.first { $0.id == id }?.name ?? "Unknown Club"
+    }
+
+    private func standingRankSuffix(_ rank: Int) -> String {
+        switch rank % 10 {
+        case 1 where rank % 100 != 11: return "st"
+        case 2 where rank % 100 != 12: return "nd"
+        case 3 where rank % 100 != 13: return "rd"
+        default: return "th"
+        }
     }
     
     /// Moves a club into a new tier, updating both the club record and the league membership lists.
@@ -1837,6 +2115,13 @@ public final class GameState: Codable {
         clubs[clubIdx].finances.matchdayIncome = newFinances.matchdayIncome
         clubs[clubIdx].finances.sponsorshipIncome = newFinances.sponsorshipIncome
         clubs[clubIdx].finances.merchandiseIncome = newFinances.merchandiseIncome
+        // The new tier baseline is only an estimate; the squad's actual wage
+        // bill must still drive the weekly ledger.
+        clubs[clubIdx].finances.currentWageBill = clubs[clubIdx].totalWeeklyWageBill
+        if clubs[clubIdx].isUserClub {
+            // Preserve active commercial partnerships when the tier baseline is reset.
+            clubs[clubIdx].finances.sponsorshipIncome += owner.sponsorshipDeals.reduce(0) { $0 + $1.annualValue }
+        }
         
         // Remove from the old league's membership.
         if let oldLeagueIdx = leagues.firstIndex(where: { $0.tier == oldTier }) {
@@ -1889,6 +2174,7 @@ public final class GameState: Codable {
     /// Clears any club association, leaving the user unemployed but with a
     /// manager profile intact.
     public func goUnemployed() {
+        guard gameMode == .manageClub else { return }
         userClubId = nil
         for idx in 0..<clubs.count {
             clubs[idx].isUserClub = false
@@ -1900,7 +2186,8 @@ public final class GameState: Codable {
     /// of the manager's own standing; unemployed users see more low-reputation
     /// openings, successful managers attract bigger clubs.
     public func generateJobOffers(maxCount: Int = 4, excludeUserClub: Bool = true) {
-        guard clubs.count > 2 else { return }
+        guard gameMode == .manageClub, clubs.count > 2 else { return }
+        let requestedCount = max(1, maxCount)
 
         let userRep = manager.reputation
         let userClubIdLocal = userClubId
@@ -1915,7 +2202,7 @@ public final class GameState: Codable {
         // whole world every week — offers are generated on demand (job screen / news).
         let sorted = candidates.sorted { $0.reputation > $1.reputation }
         var newOffers: [JobOffer] = []
-        for club in sorted.prefix(max(maxCount * 3, maxCount)) {
+        for club in sorted.prefix(requestedCount * 3) {
             let league = leagues.first { $0.tier == club.leagueTier }
             let wage = max(1_000, club.finances.wageBudget / 40)
             newOffers.append(
@@ -1933,7 +2220,7 @@ public final class GameState: Codable {
 
         // Shuffle a little so the ordering isn't strictly by reputation.
         newOffers.shuffle()
-        let chosen = Array(newOffers.prefix(maxCount))
+        let chosen = Array(newOffers.prefix(requestedCount))
 
         // De-duplicate against offers we already hold.
         let existingClubIds = Set(jobOffers.compactMap { $0.clubId })
@@ -1957,6 +2244,7 @@ public final class GameState: Codable {
     /// vacated first. Returns the new club on success.
     @discardableResult
     public func acceptJobOffer(_ offer: JobOffer) -> Club? {
+        guard gameMode == .manageClub else { return nil }
         guard let clubId = offer.clubId,
               let idx = clubs.firstIndex(where: { $0.id == clubId }) else {
             // National-team offers are handled by a later stage; just drop them.
@@ -1971,6 +2259,14 @@ public final class GameState: Codable {
         userClubId = clubId
         jobOffers.removeAll()
 
+        // A new job starts with a clean slate: the previous board's patience,
+        // team talk and training week do not carry over.
+        jobSecurity = JobSecurity()
+        teamTalk = nil
+        teamTalkAppliedWeek = nil
+        lastTrainingWeek = nil
+        activeMatchFixtureId = nil
+
         // Reputation is nudged toward the new role's standing.
         manager.reputation = min(100, max(manager.reputation, min(offer.reputation, manager.reputation + 10)))
         clubs[idx].manager = manager.fullName
@@ -1982,6 +2278,7 @@ public final class GameState: Codable {
             sender: "The Board — \(clubs[idx].name)"
         )
         seedManagerInbox()
+        seedAcademies()
         return clubs[idx]
     }
 
