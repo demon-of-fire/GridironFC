@@ -66,7 +66,6 @@ public struct MailboxView: View {
         }
         .navigationTitle("Inbox")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { gameState.markAllMailRead() }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Done") {

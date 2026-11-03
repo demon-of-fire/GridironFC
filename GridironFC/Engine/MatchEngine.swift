@@ -62,6 +62,12 @@ public struct MatchEngine {
             
             // Morale modifier (±10%)
             skill *= player.morale.performanceMultiplier
+
+            // Persistent condition: a player arriving short of match fitness or
+            // sharpness (e.g. after injury or a long lay-off) is below their best.
+            let fitnessModifier = 0.85 + (min(100.0, max(0.0, player.matchFitness)) / 100.0) * 0.15
+            let sharpnessModifier = 0.92 + (min(100.0, max(0.0, player.sharpness)) / 100.0) * 0.08
+            skill *= fitnessModifier * sharpnessModifier
             
             // In-match fatigue penalty (up to -25% when completely exhausted)
             let fatiguePenalty = (currentFatigue / 100.0) * 0.25
@@ -365,6 +371,14 @@ public struct MatchEngine {
                     awayFouls: &awayFouls,
                     homeGoals: &homeGoals,
                     awayGoals: &awayGoals,
+                    homeShots: &homeShots,
+                    awayShots: &awayShots,
+                    homeShotsOnTarget: &homeShotsOnTarget,
+                    awayShotsOnTarget: &awayShotsOnTarget,
+                    homeSaves: &homeSaves,
+                    awaySaves: &awaySaves,
+                    homeXG: &homeXG,
+                    awayXG: &awayXG,
                     minute: minute,
                     events: &events
                 )
@@ -423,7 +437,7 @@ public struct MatchEngine {
         )
         events.append(
             MatchEvent(
-                minute: min(minute - 1, 90),
+                minute: max(1, minute - 1),
                 type: .fullTime,
                 shortText: ftSummary.short,
                 detailText: ftSummary.detail,
@@ -467,8 +481,9 @@ public struct MatchEngine {
         for ap in homeAll { ratingsMap[ap.player.id] = (ap.currentRating * 10).rounded() / 10 }
         for ap in awayAll { ratingsMap[ap.player.id] = (ap.currentRating * 10).rounded() / 10 }
         
-        let attendancePct = Double.random(in: 0.78...0.98)
-        let attendance = Int(Double(homeClub.stadiumCapacity) * attendancePct)
+        // Gate size reflects the home club's usual pull and the appeal of the
+        // visiting side, rather than a flat random fill of the stadium.
+        let attendance = homeClub.finances.expectedAttendance(opponentReputation: awayClub.reputation)
         
         let matchResult = MatchResult(
             homeClubId: homeClub.id,
@@ -722,12 +737,13 @@ public struct MatchEngine {
         
         // Find designated or best corner taker
         let cornerTakerId = attackingClub.tactics.cornerTaker
-        guard let taker = attackingSquad.first(where: { $0.player.id == cornerTakerId && !$0.isSentOff }) ??
-            attackingSquad.max(by: { $0.player.attributes.crossing < $1.player.attributes.crossing }) ??
-            attackingSquad.first else { return }
+        let available = attackingSquad.filter { !$0.isSentOff && !$0.isSubstitutedOut }
+        guard let taker = available.first(where: { $0.player.id == cornerTakerId }) ??
+            available.max(by: { $0.player.attributes.crossing < $1.player.attributes.crossing }) ??
+            available.first else { return }
         
         // Find top aerial threat
-        let aerialTargets = attackingSquad.filter { $0.player.id != taker.player.id && !$0.isSentOff }
+        let aerialTargets = available.filter { $0.player.id != taker.player.id }
         let headerTarget = aerialTargets.max(by: { ($0.player.attributes.heading + $0.player.attributes.jumping) < ($1.player.attributes.heading + $1.player.attributes.jumping) }) ?? taker
         
         // xG for corner
@@ -782,7 +798,7 @@ public struct MatchEngine {
             events.append(
                 MatchEvent(
                     minute: minute,
-                    type: .corner,
+                    type: .goal,
                     clubId: attackingClub.id,
                     playerId: headerTarget.player.id,
                     assistPlayerId: taker.player.id,
@@ -818,9 +834,10 @@ public struct MatchEngine {
         let attackingSquad = isHomeAttacking ? homeActive : awayActive
         
         let freeKickTakerId = attackingClub.tactics.freeKickTaker
-        guard let taker = attackingSquad.first(where: { $0.player.id == freeKickTakerId && !$0.isSentOff }) ??
-            attackingSquad.max(by: { $0.player.attributes.freeKicks < $1.player.attributes.freeKicks }) ??
-            attackingSquad.first else { return }
+        let available = attackingSquad.filter { !$0.isSentOff && !$0.isSubstitutedOut }
+        guard let taker = available.first(where: { $0.player.id == freeKickTakerId }) ??
+            available.max(by: { $0.player.attributes.freeKicks < $1.player.attributes.freeKicks }) ??
+            available.first else { return }
         
         let fkSkill = Double(taker.player.attributes.freeKicks)
         let chanceXG = 0.07 + (fkSkill / 400.0)
@@ -867,7 +884,7 @@ public struct MatchEngine {
             events.append(
                 MatchEvent(
                     minute: minute,
-                    type: .freeKick,
+                    type: .goal,
                     clubId: attackingClub.id,
                     playerId: taker.player.id,
                     shortText: commentary.short,
@@ -890,66 +907,119 @@ public struct MatchEngine {
         awayFouls: inout Int,
         homeGoals: inout Int,
         awayGoals: inout Int,
+        homeShots: inout Int,
+        awayShots: inout Int,
+        homeShotsOnTarget: inout Int,
+        awayShotsOnTarget: inout Int,
+        homeSaves: inout Int,
+        awaySaves: inout Int,
+        homeXG: inout Double,
+        awayXG: inout Double,
         minute: Int,
         events: inout [MatchEvent]
     ) {
         if isHomeTeamFouling { homeFouls += 1 } else { awayFouls += 1 }
-        
+
         let foulingClub = isHomeTeamFouling ? homeClub : awayClub
-        let fouledClub = isHomeTeamFouling ? awayClub : homeClub
-        var foulingSquad = isHomeTeamFouling ? homeActive : awayActive
-        
-        let activeFoulers = foulingSquad.filter { !$0.isSentOff }
+        let foulingSquad = isHomeTeamFouling ? homeActive : awayActive
+
+        let activeFoulers = foulingSquad.filter { !$0.isSentOff && !$0.isSubstitutedOut }
         guard let fouler = activeFoulers.randomElement() else { return }
         guard let foulerIdx = (isHomeTeamFouling ? homeActive : awayActive).firstIndex(where: { $0.player.id == fouler.player.id }) else { return }
-        
+
         let aggression = Double(fouler.player.attributes.aggression)
         let tackling = Double(fouler.player.attributes.tackling)
-        
-        // Probability of a card given foul
-        let cardProbability = (aggression * 0.45 + (100.0 - tackling) * 0.3) / 100.0
-        
-        if Double.random(in: 0...1) < cardProbability {
-            // Check if penalty in the box (~1 in 9 fouls)
-            let isPenalty = Double.random(in: 0...1) < 0.12
-            
-            if isPenalty {
-                resolveInMatchPenalty(
-                    isHomeKicking: !isHomeTeamFouling,
-                    homeActive: &homeActive,
-                    awayActive: &awayActive,
-                    homeClub: homeClub,
-                    awayClub: awayClub,
-                    homeGoals: &homeGoals,
-                    awayGoals: &awayGoals,
-                    minute: minute,
-                    events: &events
-                )
+
+        // The spot-kick decision is independent of the card roll: a clear box
+        // offence can be a penalty without also producing a booking (and vice
+        // versa). Previously penalties only existed inside the card branch, so
+        // most box fouls were silently ignored.
+        let isPenalty = Double.random(in: 0...1) < 0.12
+        if isPenalty {
+            resolveInMatchPenalty(
+                isHomeKicking: !isHomeTeamFouling,
+                homeActive: &homeActive,
+                awayActive: &awayActive,
+                homeClub: homeClub,
+                awayClub: awayClub,
+                homeGoals: &homeGoals,
+                awayGoals: &awayGoals,
+                homeShots: &homeShots,
+                awayShots: &awayShots,
+                homeShotsOnTarget: &homeShotsOnTarget,
+                awayShotsOnTarget: &awayShotsOnTarget,
+                homeSaves: &homeSaves,
+                awaySaves: &awaySaves,
+                homeXG: &homeXG,
+                awayXG: &awayXG,
+                minute: minute,
+                events: &events
+            )
+        }
+
+        // Probability of a card given foul. Penalty-box offences are more likely
+        // to be punished, but still depend on the challenge.
+        var cardProbability = (aggression * 0.45 + (100.0 - tackling) * 0.3) / 100.0
+        if isPenalty { cardProbability = min(0.92, cardProbability + 0.30) }
+
+        guard Double.random(in: 0...1) < cardProbability else { return }
+
+        // Card roll: yellow or straight red
+        let isStraightRed = Double.random(in: 0...1) < 0.03
+
+        if isStraightRed {
+            if isHomeTeamFouling {
+                homeActive[foulerIdx].isSentOff = true
+                homeActive[foulerIdx].currentRating = max(4.0, homeActive[foulerIdx].currentRating - 1.5)
+            } else {
+                awayActive[foulerIdx].isSentOff = true
+                awayActive[foulerIdx].currentRating = max(4.0, awayActive[foulerIdx].currentRating - 1.5)
             }
-            
-            // Card roll: yellow or straight red
-            let isStraightRed = Double.random(in: 0...1) < 0.03
-            
-            if isStraightRed {
+
+            let commentary = Commentary.card(
+                player: fouler.player,
+                club: foulingClub,
+                isRed: true,
+                isSecondYellow: false,
+                minute: minute
+            )
+            events.append(
+                MatchEvent(
+                    minute: minute,
+                    type: .redCard,
+                    clubId: foulingClub.id,
+                    playerId: fouler.player.id,
+                    shortText: commentary.short,
+                    detailText: commentary.detail,
+                    isHomeTeam: isHomeTeamFouling
+                )
+            )
+        } else {
+            // Yellow card
+            let currentYellows = isHomeTeamFouling ? homeActive[foulerIdx].yellowCards : awayActive[foulerIdx].yellowCards
+            if currentYellows >= 1 {
+                // Second yellow -> Red
                 if isHomeTeamFouling {
+                    homeActive[foulerIdx].yellowCards += 1
                     homeActive[foulerIdx].isSentOff = true
-                    homeActive[foulerIdx].currentRating = max(4.0, homeActive[foulerIdx].currentRating - 1.5)
+                    homeActive[foulerIdx].currentRating = max(4.0, homeActive[foulerIdx].currentRating - 1.2)
                 } else {
+                    awayActive[foulerIdx].yellowCards += 1
                     awayActive[foulerIdx].isSentOff = true
-                    awayActive[foulerIdx].currentRating = max(4.0, awayActive[foulerIdx].currentRating - 1.5)
+                    awayActive[foulerIdx].currentRating = max(4.0, awayActive[foulerIdx].currentRating - 1.2)
                 }
-                
+
                 let commentary = Commentary.card(
                     player: fouler.player,
                     club: foulingClub,
                     isRed: true,
-                    isSecondYellow: false,
+                    isSecondYellow: true,
                     minute: minute
                 )
                 events.append(
                     MatchEvent(
                         minute: minute,
-                        type: .redCard,
+                        type: .secondYellow,
                         clubId: foulingClub.id,
                         playerId: fouler.player.id,
                         shortText: commentary.short,
@@ -958,66 +1028,32 @@ public struct MatchEngine {
                     )
                 )
             } else {
-                // Yellow card
-                let currentYellows = isHomeTeamFouling ? homeActive[foulerIdx].yellowCards : awayActive[foulerIdx].yellowCards
-                if currentYellows >= 1 {
-                    // Second yellow -> Red
-                    if isHomeTeamFouling {
-                        homeActive[foulerIdx].yellowCards += 1
-                        homeActive[foulerIdx].isSentOff = true
-                        homeActive[foulerIdx].currentRating = max(4.0, homeActive[foulerIdx].currentRating - 1.2)
-                    } else {
-                        awayActive[foulerIdx].yellowCards += 1
-                        awayActive[foulerIdx].isSentOff = true
-                        awayActive[foulerIdx].currentRating = max(4.0, awayActive[foulerIdx].currentRating - 1.2)
-                    }
-                    
-                    let commentary = Commentary.card(
-                        player: fouler.player,
-                        club: foulingClub,
-                        isRed: true,
-                        isSecondYellow: true,
-                        minute: minute
-                    )
-                    events.append(
-                        MatchEvent(
-                            minute: minute,
-                            type: .secondYellow,
-                            clubId: foulingClub.id,
-                            playerId: fouler.player.id,
-                            shortText: commentary.short,
-                            detailText: commentary.detail,
-                            isHomeTeam: isHomeTeamFouling
-                        )
-                    )
+                // First yellow
+                if isHomeTeamFouling {
+                    homeActive[foulerIdx].yellowCards = 1
+                    homeActive[foulerIdx].currentRating = max(4.0, homeActive[foulerIdx].currentRating - 0.4)
                 } else {
-                    // First yellow
-                    if isHomeTeamFouling {
-                        homeActive[foulerIdx].yellowCards = 1
-                        homeActive[foulerIdx].currentRating = max(4.0, homeActive[foulerIdx].currentRating - 0.4)
-                    } else {
-                        awayActive[foulerIdx].yellowCards = 1
-                        awayActive[foulerIdx].currentRating = max(4.0, awayActive[foulerIdx].currentRating - 0.4)
-                    }
-                    
-                    let commentary = Commentary.card(
-                        player: fouler.player,
-                        club: foulingClub,
-                        isRed: false,
-                        minute: minute
-                    )
-                    events.append(
-                        MatchEvent(
-                            minute: minute,
-                            type: .yellowCard,
-                            clubId: foulingClub.id,
-                            playerId: fouler.player.id,
-                            shortText: commentary.short,
-                            detailText: commentary.detail,
-                            isHomeTeam: isHomeTeamFouling
-                        )
-                    )
+                    awayActive[foulerIdx].yellowCards = 1
+                    awayActive[foulerIdx].currentRating = max(4.0, awayActive[foulerIdx].currentRating - 0.4)
                 }
+
+                let commentary = Commentary.card(
+                    player: fouler.player,
+                    club: foulingClub,
+                    isRed: false,
+                    minute: minute
+                )
+                events.append(
+                    MatchEvent(
+                        minute: minute,
+                        type: .yellowCard,
+                        clubId: foulingClub.id,
+                        playerId: fouler.player.id,
+                        shortText: commentary.short,
+                        detailText: commentary.detail,
+                        isHomeTeam: isHomeTeamFouling
+                    )
+                )
             }
         }
     }
@@ -1032,6 +1068,14 @@ public struct MatchEngine {
         awayClub: Club,
         homeGoals: inout Int,
         awayGoals: inout Int,
+        homeShots: inout Int,
+        awayShots: inout Int,
+        homeShotsOnTarget: inout Int,
+        awayShotsOnTarget: inout Int,
+        homeSaves: inout Int,
+        awaySaves: inout Int,
+        homeXG: inout Double,
+        awayXG: inout Double,
         minute: Int,
         events: inout [MatchEvent]
     ) {
@@ -1040,13 +1084,24 @@ public struct MatchEngine {
         let kickingSquad = isHomeKicking ? homeActive : awayActive
         let defendingSquad = isHomeKicking ? awayActive : homeActive
         
+        let availableTakers = kickingSquad.filter { !$0.isSentOff && !$0.isSubstitutedOut }
         let penaltyTakerId = kickingClub.tactics.penaltyTaker
-        guard let taker = kickingSquad.first(where: { $0.player.id == penaltyTakerId && !$0.isSentOff }) ??
-            kickingSquad.max(by: { $0.player.attributes.penalties < $1.player.attributes.penalties }) ??
-            kickingSquad.first else { return }
-        
-        guard let gk = defendingSquad.first(where: { $0.player.primaryPosition == .GK && !$0.isSentOff }) ??
-            defendingSquad.first(where: { !$0.isSentOff }) ?? defendingSquad.first else { return }
+        guard let taker = availableTakers.first(where: { $0.player.id == penaltyTakerId }) ??
+            availableTakers.max(by: { $0.player.attributes.penalties < $1.player.attributes.penalties }) ??
+            availableTakers.first else { return }
+
+        let availableDefenders = defendingSquad.filter { !$0.isSentOff && !$0.isSubstitutedOut }
+        guard let gk = availableDefenders.first(where: { $0.player.primaryPosition == .GK }) ??
+            availableDefenders.first else { return }
+
+        // A penalty is a shot with a fixed, high-quality expected-goal value.
+        if isHomeKicking {
+            homeShots += 1
+            homeXG += 0.76
+        } else {
+            awayShots += 1
+            awayXG += 0.76
+        }
         
         let penaltySkill = Double(taker.player.attributes.penalties)
         let composure = Double(taker.player.attributes.composure)
@@ -1057,7 +1112,13 @@ public struct MatchEngine {
         let isScored = Double.random(in: 0...1) < min(0.92, max(0.55, conversionRate))
         
         if isScored {
-            if isHomeKicking { homeGoals += 1 } else { awayGoals += 1 }
+            if isHomeKicking {
+                homeGoals += 1
+                homeShotsOnTarget += 1
+            } else {
+                awayGoals += 1
+                awayShotsOnTarget += 1
+            }
             
             if let idx = (isHomeKicking ? homeActive : awayActive).firstIndex(where: { $0.player.id == taker.player.id }) {
                 if isHomeKicking {
@@ -1083,7 +1144,7 @@ public struct MatchEngine {
             events.append(
                 MatchEvent(
                     minute: minute,
-                    type: .penalty,
+                    type: .goal,
                     clubId: kickingClub.id,
                     playerId: taker.player.id,
                     shortText: commentary.short,
@@ -1092,6 +1153,13 @@ public struct MatchEngine {
                 )
             )
         } else {
+            if isHomeKicking {
+                homeShotsOnTarget += 1
+                awaySaves += 1
+            } else {
+                awayShotsOnTarget += 1
+                homeSaves += 1
+            }
             let shortText = "PENALTY SAVED! \(taker.player.displayName) misses! \(minute)'"
             let detailText = "\(taker.player.fullName) struck it towards the bottom corner, but \(gk.player.fullName) guessed correctly and pulled off a stunning penalty save!"
             events.append(
@@ -1130,36 +1198,67 @@ public struct MatchEngine {
         )
         
         guard !homeActive.isEmpty, !awayActive.isEmpty else { return }
-        var homeTakers = homeActive.filter { !$0.isSentOff }.sorted { $0.player.attributes.penalties > $1.player.attributes.penalties }
-        var awayTakers = awayActive.filter { !$0.isSentOff }.sorted { $0.player.attributes.penalties > $1.player.attributes.penalties }
+        let homeOnPitch = homeActive.filter { !$0.isSentOff && !$0.isSubstitutedOut }
+        let awayOnPitch = awayActive.filter { !$0.isSentOff && !$0.isSubstitutedOut }
+        var homeTakers = homeOnPitch.sorted { $0.player.attributes.penalties > $1.player.attributes.penalties }
+        var awayTakers = awayOnPitch.sorted { $0.player.attributes.penalties > $1.player.attributes.penalties }
         if homeTakers.isEmpty { homeTakers = homeActive }
         if awayTakers.isEmpty { awayTakers = awayActive }
         guard !homeTakers.isEmpty, !awayTakers.isEmpty else { return }
         
-        guard let homeGk = homeActive.first(where: { $0.player.primaryPosition == .GK }) ?? homeActive.first,
-              let awayGk = awayActive.first(where: { $0.player.primaryPosition == .GK }) ?? awayActive.first else { return }
+        guard let homeGk = homeOnPitch.first(where: { $0.player.primaryPosition == .GK }) ?? homeActive.first,
+              let awayGk = awayOnPitch.first(where: { $0.player.primaryPosition == .GK }) ?? awayActive.first else { return }
         
         var homeShootoutScore = 0
         var awayShootoutScore = 0
-        
-        // Best of 5 rounds + sudden death
-        for round in 1...11 {
+
+        func conversionChance(taker: ActiveMatchPlayer, keeper: ActiveMatchPlayer) -> Double {
+            let raw = 0.75 + Double(taker.player.attributes.penalties - keeper.player.attributes.reflexes) * 0.002
+            return min(0.95, max(0.55, raw))
+        }
+
+        // Best-of-five, with early clinching, followed by sudden death. Each
+        // round is one kick per side; the shootout ends as soon as one side can
+        // no longer be caught, or once the scores differ after round five.
+        var round = 1
+        while round <= 50 {
             let homeTaker = homeTakers[(round - 1) % homeTakers.count]
             let awayTaker = awayTakers[(round - 1) % awayTakers.count]
-            
-            let homeSuccess = Double.random(in: 0...1) < (0.75 + Double(homeTaker.player.attributes.penalties - awayGk.player.attributes.reflexes) * 0.002)
-            if homeSuccess { homeShootoutScore += 1 }
-            
-            let awaySuccess = Double.random(in: 0...1) < (0.75 + Double(awayTaker.player.attributes.penalties - homeGk.player.attributes.reflexes) * 0.002)
-            if awaySuccess { awayShootoutScore += 1 }
-            
-            // Check best of 5 termination or sudden death
-            if round >= 5 && homeShootoutScore != awayShootoutScore {
-                break
+
+            if Double.random(in: 0...1) < conversionChance(taker: homeTaker, keeper: awayGk) {
+                homeShootoutScore += 1
+            }
+
+            // After the home kick, the away side may still have regulation kicks
+            // left. If they cannot mathematically catch up, the tie is over.
+            if round <= 5 {
+                let awayKicksRemaining = 6 - round
+                if homeShootoutScore > awayShootoutScore + awayKicksRemaining { break }
+            }
+
+            if Double.random(in: 0...1) < conversionChance(taker: awayTaker, keeper: homeGk) {
+                awayShootoutScore += 1
+            }
+
+            if round >= 5 {
+                if homeShootoutScore != awayShootoutScore { break }
+            } else {
+                let kicksRemaining = 5 - round
+                if abs(homeShootoutScore - awayShootoutScore) > kicksRemaining { break }
+            }
+
+            round += 1
+        }
+
+        // Safeguard after 50 sudden-death rounds (practically impossible): always
+        // produce a winner rather than awarding the tie to the away side by default.
+        if homeShootoutScore == awayShootoutScore {
+            if Bool.random() {
+                homeShootoutScore += 1
+            } else {
+                awayShootoutScore += 1
             }
         }
-        
-        // Award victory by adding 1 shootout goal
         if homeShootoutScore > awayShootoutScore {
             homeGoals += 1
             events.append(
@@ -1321,7 +1420,10 @@ public struct MatchEngine {
         let intensity = isHome ? homeClub.tactics.pressing.staminaDrainMultiplier : awayClub.tactics.pressing.staminaDrainMultiplier
         
         if isHome {
-            guard let idx = homeActive.indices.randomElement(), !homeActive[idx].isSentOff else { return }
+            let candidates = homeActive.indices.filter {
+                !homeActive[$0].isSentOff && !homeActive[$0].isSubstitutedOut
+            }
+            guard let idx = candidates.randomElement() else { return }
             if let injury = InjuryEngine.checkForInjury(player: homeActive[idx].player, matchMinute: minute, intensity: intensity) {
                 homeActive[idx].player.injury = injury
                 let commentary = Commentary.injury(player: homeActive[idx].player, club: homeClub, minute: minute, injuryType: injury.type)
@@ -1338,7 +1440,10 @@ public struct MatchEngine {
                 )
             }
         } else {
-            guard let idx = awayActive.indices.randomElement(), !awayActive[idx].isSentOff else { return }
+            let candidates = awayActive.indices.filter {
+                !awayActive[$0].isSentOff && !awayActive[$0].isSubstitutedOut
+            }
+            guard let idx = candidates.randomElement() else { return }
             if let injury = InjuryEngine.checkForInjury(player: awayActive[idx].player, matchMinute: minute, intensity: intensity) {
                 awayActive[idx].player.injury = injury
                 let commentary = Commentary.injury(player: awayActive[idx].player, club: awayClub, minute: minute, injuryType: injury.type)

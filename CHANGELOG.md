@@ -194,6 +194,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Set-piece and penalty goals** — goals from corners, free kicks and in-match
+  penalties now register as goals in the scoreline, live commentary, post-match
+  timeline and goal sound. Penalties are also resolved independently of the card
+  decision and contribute to shots, xG, shots on target and saves.
+- **Match fitness and sharpness** — a player's persistent match fitness and
+  sharpness now affect their effective ability, so returning from injury or a
+  long lay-off has a real performance cost.
+- **Injury selection** — substituted-off players can no longer be picked for a
+  new in-match injury.
+- **Attendance and gate income** — attendance now uses the home club's usual
+  attendance rate and the away club's reputation instead of a flat random fill.
+- **Full-time and shootouts** — the full-time event reports the actual final
+  minute (including stoppage/extra time), and penalty shootouts clinch as soon
+  as the result is decided rather than always running to a fixed round.
+- **Sell-on clauses** — contracts now remember the former club entitled to a
+  sell-on share, so future transfers actually pay that club instead of comparing
+  the seller against itself.
+- **Transfer finances** — signings revalidate the buyer's transfer and wage
+  budgets at completion, AI clubs respect wage limits, and promotion or
+  relegation preserves each club's real reputation and stadium capacity when
+  recalculating its finances.
+- **Transfer negotiations** — counter-offers are no longer overwritten by stale
+  state, unanswered counters and wage demands expire instead of auto-resolving,
+  and the negotiation screen can always be dismissed after submitting a bid.
+- **Inbox and actions** — opening the Inbox no longer marks every message read,
+  so unread badges and filters work; accepting a job or taking over a club now
+  only navigates away when the action succeeded.
 - **Squad tap-to-substitute** — tapping a bench player and a starter now swaps
   them correctly via the new `swapIntoStartingXI` helper.
 - **Full league simulation** — other clubs' fixtures are now simulated through

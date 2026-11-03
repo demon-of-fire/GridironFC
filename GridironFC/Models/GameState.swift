@@ -684,6 +684,11 @@ public final class GameState: Codable {
         }
 
         guard let player = targetPlayer else { return nil }
+        guard offeredWage > 0, contractYears > 0 else { return nil }
+
+        // Free agents never command a fee; enforce that here so the UI or a
+        // stale slider value cannot charge the buyer for an unattached player.
+        let resolvedFee = isFreeAgent ? 0 : max(0, fee)
 
         let buyer = clubs[buyerIdx]
         let askingPrice = sellingValuation(for: player, at: sellerIdx.map { clubs[$0] }, buyerReputation: buyer.reputation)
@@ -692,7 +697,7 @@ public final class GameState: Codable {
             playerId: playerId,
             fromClubId: sellerIdx.map { clubs[$0].id } ?? UUID(),
             toClubId: userClubId,
-            fee: fee,
+            fee: resolvedFee,
             isLoan: false,
             status: .pending,
             offeredWage: offeredWage,
@@ -703,14 +708,20 @@ public final class GameState: Codable {
             weeksUntilResponse: isFreeAgent ? 0 : 1
         )
 
-        // Budget sanity: the buyer can never commit more than the bank allows.
-        let canAffordFee = isFreeAgent || fee <= buyer.finances.transferBudget
-        if !canAffordFee {
+        // Budget sanity: the buyer can never commit more than the bank or the
+        // board's wage structure allows.
+        let canAffordFee = isFreeAgent || resolvedFee <= buyer.finances.transferBudget
+        let projectedWageBill = buyer.totalWeeklyWageBill + offeredWage
+        let canAffordWage = projectedWageBill <= buyer.finances.wageBudget
+        if !canAffordFee || !canAffordWage {
             offer.status = .rejected
             pendingTransferOffers.append(offer)
+            let reason = !canAffordFee
+                ? "The transfer fee exceeded \(buyer.name)'s budget. Raise funds before bidding again."
+                : "The proposed wage of \(Player.formatCurrency(offeredWage))/w would take the weekly wage bill beyond the board's \(Player.formatCurrency(buyer.finances.wageBudget))/w limit."
             addNews(
                 headline: "Bid for \(player.fullName) Rejected",
-                body: "The transfer fee exceeded \(buyer.name)'s budget. Raise funds before bidding again.",
+                body: reason,
                 category: .transfer,
                 sender: "Club Secretary"
             )
@@ -725,7 +736,7 @@ public final class GameState: Codable {
         pendingTransferOffers.append(offer)
         addNews(
             headline: "Bid Submitted for \(player.fullName)",
-            body: "You have tabled a \(Player.formatCurrency(fee)) bid\(isFreeAgent ? "" : " to \(sellerIdx.map { clubs[$0].name } ?? "the club")") for \(player.fullName). Expect a response in the coming days.",
+            body: "You have tabled a \(Player.formatCurrency(resolvedFee)) bid\(isFreeAgent ? "" : " to \(sellerIdx.map { clubs[$0].name } ?? "the club")") for \(player.fullName). Expect a response in the coming days.",
             category: .transfer,
             sender: "Director of Football",
             transferOfferId: offer.id
@@ -777,6 +788,19 @@ public final class GameState: Codable {
         for idx in pendingTransferOffers.indices {
             guard pendingTransferOffers[idx].isLive else { continue }
 
+            // Once the user has a counter or wage demand to answer, the clock is
+            // on them. Do not let the counterparty auto-resolve the offer on the
+            // user's behalf; expire it if they never respond.
+            let status = pendingTransferOffers[idx].status
+            if (status == .counterOffer || status == .personalTerms),
+               pendingTransferOffers[idx].weeksUntilResponse > 0 {
+                pendingTransferOffers[idx].weeksUntilResponse -= 1
+                if pendingTransferOffers[idx].weeksUntilResponse <= 0 {
+                    expireAwaitingUserDecision(at: idx)
+                }
+                continue
+            }
+
             // Count down the response timer.
             if pendingTransferOffers[idx].weeksUntilResponse > 0 {
                 pendingTransferOffers[idx].weeksUntilResponse -= 1
@@ -788,6 +812,30 @@ public final class GameState: Codable {
 
         // Drop offers that have been dead for a while to stop the array growing forever.
         pruneResolvedOffers()
+    }
+
+    /// Drops an offer whose counter or wage demand was left unanswered by the
+    /// user. Without this, stale offers linger forever and can auto-complete.
+    private func expireAwaitingUserDecision(at idx: Int) {
+        var offer = pendingTransferOffers[idx]
+        let name = playerName(for: offer.playerId)
+        let clubName = club(withId: offer.fromClubId)?.name ?? "The selling club"
+        let wasCounter = offer.status == .counterOffer
+        offer.status = .withdrawn
+        offer.counterFee = nil
+        offer.demandedWage = nil
+        offer.weeksUntilResponse = 0
+        pendingTransferOffers[idx] = offer
+
+        addNews(
+            headline: wasCounter ? "Counter-Offer Expires" : "Contract Talks Expire",
+            body: wasCounter
+                ? "\(clubName)'s counter-offer for \(name) has expired. Submit a fresh bid if you still want to sign the player."
+                : "\(name)'s wage demands went unanswered and talks have ended. You can reopen negotiations from the transfer list.",
+            category: .transfer,
+            sender: "Director of Football",
+            transferOfferId: offer.id
+        )
     }
 
     /// Resolves a single live offer based on its current status.
@@ -806,7 +854,15 @@ public final class GameState: Codable {
         switch offer.status {
         case .personalTerms:
             resolvePersonalTerms(at: idx, player: player, userClubId: userClubId)
-        case .pending, .counterOffer, .accepted:
+        case .pending, .accepted:
+            // Free agents have no selling club; a revised wage offer must go
+            // back to the player rather than through the club-fee ladder.
+            if clubs.contains(where: { $0.id == offer.fromClubId }) {
+                resolveClubFee(at: idx, player: player, userClubId: userClubId)
+            } else {
+                resolvePersonalTerms(at: idx, player: player, userClubId: userClubId)
+            }
+        case .counterOffer:
             resolveClubFee(at: idx, player: player, userClubId: userClubId)
         default:
             break
@@ -829,9 +885,18 @@ public final class GameState: Codable {
         // Ladder of tolerance: met-or-beat is done; near-misses get a counter or a
         // random accept; lowballs are rejected.
         if bid >= asking {
-            offer.status = .completed
-            completeSigning(player: player, buyerIdx: buyerIdx, sellerIdx: sellerIdx, fee: offer.fee, wage: offer.offeredWage ?? player.wage, years: offer.contractYears ?? 3)
-            completeOfferMessage(offer, player: player)
+            if completeSigning(player: player, buyerIdx: buyerIdx, sellerIdx: sellerIdx, fee: offer.fee, wage: offer.offeredWage ?? player.wage, years: offer.contractYears ?? 3) {
+                offer.status = .completed
+                completeOfferMessage(offer, player: player)
+            } else {
+                offer.status = .rejected
+                addNews(
+                    headline: "Deal for \(player.fullName) Collapses",
+                    body: "\(clubs[buyerIdx].name) could no longer afford the agreed fee and wages, so the transfer has fallen through.",
+                    category: .transfer,
+                    sender: "Director of Football"
+                )
+            }
             pendingTransferOffers[idx] = offer
             return
         }
@@ -839,20 +904,31 @@ public final class GameState: Codable {
         if bid >= asking * 0.9 {
             // Close enough — the club usually accepts, sometimes counters once more.
             if offer.negotiationRound >= 2 || Double.random(in: 0...1) < 0.6 {
-                offer.status = .completed
-                completeSigning(player: player, buyerIdx: buyerIdx, sellerIdx: sellerIdx, fee: offer.fee, wage: offer.offeredWage ?? player.wage, years: offer.contractYears ?? 3)
-                completeOfferMessage(offer, player: player)
+                if completeSigning(player: player, buyerIdx: buyerIdx, sellerIdx: sellerIdx, fee: offer.fee, wage: offer.offeredWage ?? player.wage, years: offer.contractYears ?? 3) {
+                    offer.status = .completed
+                    completeOfferMessage(offer, player: player)
+                } else {
+                    offer.status = .rejected
+                    addNews(
+                        headline: "Deal for \(player.fullName) Collapses",
+                        body: "\(clubs[buyerIdx].name) could no longer afford the agreed fee and wages, so the transfer has fallen through.",
+                        category: .transfer,
+                        sender: "Director of Football"
+                    )
+                }
+                pendingTransferOffers[idx] = offer
             } else {
+                // issueCounter persists the updated offer itself.
                 issueCounter(at: idx, offer: offer, seller: seller, player: player)
             }
-            pendingTransferOffers[idx] = offer
             return
         }
 
         if bid >= asking * 0.7 {
             // Meaningfully short — counter with a figure they can accept.
+            // issueCounter writes the counter state into the array; do not
+            // overwrite it with the stale local copy afterwards.
             issueCounter(at: idx, offer: offer, seller: seller, player: player)
-            pendingTransferOffers[idx] = offer
             return
         }
 
@@ -880,7 +956,7 @@ public final class GameState: Codable {
         offer.counterFee = Int(max(Double(offer.fee), target))
         offer.negotiationRound += 1
         offer.status = .counterOffer
-        offer.weeksUntilResponse = 1
+        offer.weeksUntilResponse = 2
         pendingTransferOffers[idx] = offer
 
         addNews(
@@ -902,12 +978,24 @@ public final class GameState: Codable {
         }
         let buyer = clubs[buyerIdx]
         let sellerIdx = clubs.firstIndex(where: { $0.id == offer.fromClubId })
-        let demand = wageDemand(for: player, buyer: buyer, seller: sellerIdx.map { clubs[$0] })
+        // Honour a demand that has already been stated to the user. Re-rolling
+        // it each week made meeting the displayed figure feel arbitrary.
+        let demand = offer.demandedWage ?? wageDemand(for: player, buyer: buyer, seller: sellerIdx.map { clubs[$0] })
 
         if let offered = offer.offeredWage, offered >= demand {
-            offer.status = .completed
-            completeSigning(player: player, buyerIdx: buyerIdx, sellerIdx: sellerIdx, fee: offer.fee, wage: offered, years: offer.contractYears ?? 3)
-            completeOfferMessage(offer, player: player)
+            if completeSigning(player: player, buyerIdx: buyerIdx, sellerIdx: sellerIdx, fee: offer.fee, wage: offered, years: offer.contractYears ?? 3) {
+                offer.status = .completed
+                offer.demandedWage = nil
+                completeOfferMessage(offer, player: player)
+            } else {
+                offer.status = .rejected
+                addNews(
+                    headline: "Deal for \(player.fullName) Collapses",
+                    body: "\(buyer.name) could not fit the agreed wage into the club's budget, so the move has fallen through.",
+                    category: .transfer,
+                    sender: "Director of Football"
+                )
+            }
             pendingTransferOffers[idx] = offer
             return
         }
@@ -917,7 +1005,7 @@ public final class GameState: Codable {
             offer.demandedWage = demand
             offer.negotiationRound += 1
             offer.status = .personalTerms
-            offer.weeksUntilResponse = 1
+            offer.weeksUntilResponse = 2
             pendingTransferOffers[idx] = offer
             addNews(
                 headline: "\(player.fullName)'s Agent Responds",
@@ -977,7 +1065,7 @@ public final class GameState: Codable {
 
         addNews(
             headline: "You Accept the Counter for \(playerName(for: offer.playerId))",
-            body: "You have met the asking price of \(Player.formatCurrency(counter)). The clubs will now discuss personal terms.",
+            body: "You have met the asking price of \(Player.formatCurrency(counter)). The selling club will now finalise the paperwork and personal terms.",
             category: .transfer,
             sender: "Director of Football"
         )
@@ -1003,6 +1091,8 @@ public final class GameState: Codable {
         var offer = pendingTransferOffers[idx]
         offer.fee = newFee
         if let w = newWage { offer.offeredWage = w }
+        // A revised offer is a normal response from the user. Free agents have
+        // no selling club, so resolveOffer routes it back to personal terms.
         offer.status = .pending
         offer.weeksUntilResponse = 1
         pendingTransferOffers[idx] = offer
@@ -1025,11 +1115,23 @@ public final class GameState: Codable {
               let sellerIdx = clubs.firstIndex(where: { $0.id == userClubId }),
               let buyerIdx = clubs.firstIndex(where: { $0.id == offer.toClubId }) else { return }
 
-        completeSigning(player: player, buyerIdx: buyerIdx, sellerIdx: sellerIdx, fee: offer.fee, wage: offer.offeredWage ?? player.wage, years: offer.contractYears ?? 3)
-        offer.status = .completed
-        offer.weeksUntilResponse = 0
-        pendingTransferOffers[idx] = offer
-        markOfferMailRead(offerId: offerId)
+        if completeSigning(player: player, buyerIdx: buyerIdx, sellerIdx: sellerIdx, fee: offer.fee, wage: offer.offeredWage ?? player.wage, years: offer.contractYears ?? 3) {
+            offer.status = .completed
+            offer.weeksUntilResponse = 0
+            pendingTransferOffers[idx] = offer
+            markOfferMailRead(offerId: offerId)
+        } else {
+            offer.status = .rejected
+            offer.weeksUntilResponse = 0
+            pendingTransferOffers[idx] = offer
+            markOfferMailRead(offerId: offerId)
+            addNews(
+                headline: "Transfer Collapses",
+                body: "\(club(withId: offer.toClubId)?.name ?? "The buyer") could no longer complete the signing of \(player.fullName), so the deal is off.",
+                category: .transfer,
+                sender: "Director of Football"
+            )
+        }
     }
 
     /// The user rejects an AI club's incoming bid.
@@ -1084,7 +1186,7 @@ public final class GameState: Codable {
 
         // Target a non-star player the user might be willing to sell.
         let sellable = userClub.players
-            .filter { $0.overall < 88 && $0.contract?.yearsRemaining ?? 0 <= 2 }
+            .filter { $0.overall < 88 && (($0.contract?.yearsRemaining ?? 0) <= 2) }
             .sorted { $0.value < $1.value }
         guard let target = sellable.first ?? userClub.players.min(by: { $0.overall < $1.overall }) else { return }
 
@@ -1095,6 +1197,7 @@ public final class GameState: Codable {
         guard !pendingTransferOffers.contains(where: { $0.playerId == target.id && $0.isLive }) else { return }
 
         let wage = max(target.wage, Int(Double(bid) / 250))
+        guard bidder.totalWeeklyWageBill + wage <= bidder.finances.wageBudget else { return }
         var offer = TransferOffer(
             playerId: target.id,
             fromClubId: userClub.id,
@@ -1122,6 +1225,9 @@ public final class GameState: Codable {
 
     
     /// Executes the movement of a player between clubs (or free agency) and records it.
+    /// Returns `false` when the buyer can no longer afford the fee or the wage, so
+    /// stale negotiations cannot push a club into debt.
+    @discardableResult
     private func completeSigning(
         player: Player,
         buyerIdx: Int,
@@ -1129,9 +1235,36 @@ public final class GameState: Codable {
         fee: Int,
         wage: Int,
         years: Int
-    ) {
+    ) -> Bool {
+        guard buyerIdx >= 0, buyerIdx < clubs.count else { return false }
+        if let sellerIdx = sellerIdx, sellerIdx == buyerIdx { return false }
+        guard fee >= 0, wage > 0, years > 0 else { return false }
+
+        // The player may have moved (or been signed from the free-agent pool) in
+        // the weeks since the bid was made. Never complete against a stale club.
+        if let sellerIdx = sellerIdx {
+            guard clubs[sellerIdx].player(withId: player.id) != nil else { return false }
+        } else {
+            guard freeAgents.contains(where: { $0.id == player.id }) else { return false }
+        }
+
+        // Budgets may have changed since the bid was submitted, so validate the
+        // whole deal again at the moment of completion.
+        let buyer = clubs[buyerIdx]
+        guard fee <= buyer.finances.transferBudget else { return false }
+        guard buyer.totalWeeklyWageBill + wage <= buyer.finances.wageBudget else { return false }
+
         var signed = player
-        signed.contract = Contract(wage: wage, yearsRemaining: years, signingDate: season.currentDate)
+        let previousContract = player.contract
+
+        // Any sell-on attached to the old contract is settled by this transfer.
+        // The buying club starts with a clean contract rather than inheriting a
+        // clause that would wrongly make the seller its beneficiary next time.
+        signed.contract = Contract(
+            wage: wage,
+            yearsRemaining: years,
+            signingDate: season.currentDate
+        )
         
         var fromClubName = "Free Agent"
         var fromClubId = UUID()
@@ -1140,15 +1273,17 @@ public final class GameState: Codable {
             fromClubName = clubs[sellerIdx].name
             fromClubId = clubs[sellerIdx].id
             _ = clubs[sellerIdx].removePlayer(withId: player.id)
-            // Seller receives the fee, minus any agreed sell-on owed to the player's
-            // former club (approximated by a share of the fee when a sell-on exists).
+
+            // The seller receives the fee minus any sell-on share owed to the
+            // club that previously developed/transferred the player.
             var sellerProceeds = fee
-            if let sellOn = player.contract?.sellOnPercentage, sellOn > 0 {
-                let owed = Int(Double(fee) * sellOn)
+            if let sellOn = previousContract?.sellOnPercentage, sellOn > 0,
+               let entitledClubId = previousContract?.formerClubId,
+               entitledClubId != clubs[sellerIdx].id,
+               let entitledIdx = clubs.firstIndex(where: { $0.id == entitledClubId }) {
+                let owed = max(0, Int(Double(fee) * sellOn))
                 sellerProceeds = max(0, fee - owed)
-                if let originIdx = clubs.firstIndex(where: { $0.id == fromClubId }), originIdx != sellerIdx {
-                    clubs[originIdx].finances.transferBudget += owed
-                }
+                clubs[entitledIdx].finances.transferBudget += owed
             }
             clubs[sellerIdx].finances.transferBudget += sellerProceeds
         } else {
@@ -1171,6 +1306,7 @@ public final class GameState: Codable {
                 date: season.currentDate
             )
         )
+        return true
     }
     
     // MARK: - Free Agent Bootstrapping
@@ -1239,8 +1375,11 @@ public final class GameState: Codable {
             // AI buys from free agency if squad depth is under 20
             if clubs[clubIdx].players.count < 20 && !freeAgents.isEmpty {
                 let candidateIdx = Int.random(in: 0..<freeAgents.count)
+                let candidate = freeAgents[candidateIdx]
+                let weeklyWage = max(500, candidate.overall * 35)
+                // Respect the board's wage ceiling before committing to a deal.
+                guard clubs[clubIdx].totalWeeklyWageBill + weeklyWage <= clubs[clubIdx].finances.wageBudget else { continue }
                 var signedPlayer = freeAgents.remove(at: candidateIdx)
-                let weeklyWage = max(500, signedPlayer.overall * 35)
                 signedPlayer.contract = Contract(wage: weeklyWage, yearsRemaining: 2, signingDate: season.currentDate)
                 clubs[clubIdx].addPlayer(signedPlayer)
                 
@@ -1273,13 +1412,13 @@ public final class GameState: Codable {
             $0.value > 0 && $0.value <= buyer.finances.transferBudget
         }
         guard let target = affordable.randomElement(),
-              let playerIdx = clubs[sellerIdx].players.firstIndex(where: { $0.id == target.id }) else { return }
+              clubs[sellerIdx].players.contains(where: { $0.id == target.id }) else { return }
 
         let fee = Int(Double(target.value) * Double.random(in: 1.0...1.4))
         guard fee <= buyer.finances.transferBudget else { return }
 
         let wage = max(target.wage, Int(Double(fee) / 260))
-        _ = playerIdx
+        guard buyer.totalWeeklyWageBill + wage <= buyer.finances.wageBudget else { return }
         completeSigning(
             player: target,
             buyerIdx: buyerIdx,
@@ -1783,10 +1922,11 @@ public final class GameState: Codable {
                 if var contract = clubs[cIdx].players[pIdx].contract {
                     contract.yearsRemaining -= 1
                     if contract.yearsRemaining <= 0 {
-                        // There is no contract-negotiation flow yet, so keep the
-                        // player at the club on a short extension rather than
-                        // silently deleting them from the squad.
-                        contract.yearsRemaining = 2
+                        // No contract-negotiation flow yet, so the club exercises a
+                        // one-year extension rather than deleting the player. Give
+                        // the renewal a modest raise so it is not a silent free pass.
+                        contract.yearsRemaining = 1
+                        contract.wage = max(500, Int(Double(contract.wage) * 1.05))
                         if clubs[cIdx].isUserClub {
                             renewedUserContracts.append(clubs[cIdx].players[pIdx].fullName)
                         }
@@ -1794,6 +1934,7 @@ public final class GameState: Codable {
                     clubs[cIdx].players[pIdx].contract = contract
                 }
             }
+            clubs[cIdx].finances.currentWageBill = clubs[cIdx].totalWeeklyWageBill
         }
 
         if !renewedUserContracts.isEmpty {
@@ -2108,13 +2249,22 @@ public final class GameState: Codable {
         clubs[clubIdx].leagueTier = newTier
         
         // Adjust finances baseline for the new division's economics, preserving balance/history.
-        let newFinances = ClubFinances.defaultFor(tier: newTier)
+        // Use the club's actual reputation and stadium capacity so promotion or
+        // relegation does not silently reset its commercial stature to a generic club.
+        let newFinances = ClubFinances.defaultFor(
+            tier: newTier,
+            reputation: clubs[clubIdx].reputation,
+            capacity: clubs[clubIdx].stadiumCapacity
+        )
         clubs[clubIdx].finances.transferBudget = newFinances.transferBudget
         clubs[clubIdx].finances.wageBudget = newFinances.wageBudget
         clubs[clubIdx].finances.tvIncome = newFinances.tvIncome
         clubs[clubIdx].finances.matchdayIncome = newFinances.matchdayIncome
         clubs[clubIdx].finances.sponsorshipIncome = newFinances.sponsorshipIncome
         clubs[clubIdx].finances.merchandiseIncome = newFinances.merchandiseIncome
+        clubs[clubIdx].finances.averageTicketPrice = newFinances.averageTicketPrice
+        clubs[clubIdx].finances.averageAttendancePct = newFinances.averageAttendancePct
+        clubs[clubIdx].finances.stadiumCapacity = clubs[clubIdx].stadiumCapacity
         // The new tier baseline is only an estimate; the squad's actual wage
         // bill must still drive the weekly ledger.
         clubs[clubIdx].finances.currentWageBill = clubs[clubIdx].totalWeeklyWageBill

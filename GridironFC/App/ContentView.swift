@@ -613,7 +613,7 @@ public struct ClubSelectView: View {
     }
     
     private func select(_ club: Club) {
-        _ = gameState.takeOverExistingClub(clubId: club.id)
+        guard gameState.takeOverExistingClub(clubId: club.id) != nil else { return }
         try? SaveManager.shared.autoSave(gameState: gameState)
         gameState.currentScreen = .dashboard
     }
@@ -748,6 +748,7 @@ public struct ManagerCreationView: View {
 
 public struct JobOffersView: View {
     @Environment(GameState.self) private var gameState
+    @State private var actionError: String?
 
     public var body: some View {
         List {
@@ -794,6 +795,14 @@ public struct JobOffersView: View {
         }
         .navigationTitle("Job Offers")
         .navigationBarTitleDisplayMode(.inline)
+        .alert("Unable to Accept Role", isPresented: Binding(
+            get: { actionError != nil },
+            set: { if !$0 { actionError = nil } }
+        )) {
+            Button("OK", role: .cancel) { actionError = nil }
+        } message: {
+            Text(actionError ?? "")
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Done") {
@@ -821,9 +830,12 @@ public struct JobOffersView: View {
 
             HStack(spacing: 12) {
                 Button {
-                    gameState.acceptJobOffer(offer)
-                    try? SaveManager.shared.autoSave(gameState: gameState)
-                    gameState.currentScreen = .dashboard
+                    if gameState.acceptJobOffer(offer) != nil {
+                        try? SaveManager.shared.autoSave(gameState: gameState)
+                        gameState.currentScreen = .dashboard
+                    } else {
+                        actionError = "That role is no longer available. Search for new vacancies and try again."
+                    }
                 } label: {
                     Label("Accept", systemImage: "checkmark")
                         .frame(maxWidth: .infinity)
@@ -3232,7 +3244,6 @@ public struct NegotiationView: View {
     @State private var contractYears = 3
     @State private var outcomeMessage: String?
     @State private var showOutcome = false
-    @State private var didSubmit = false
     
     private var target: (player: Player, club: Club?)? {
         guard let id = gameState.negotiationTargetPlayerId else { return nil }
@@ -3243,6 +3254,12 @@ public struct NegotiationView: View {
     private var liveOffer: TransferOffer? {
         guard let id = gameState.negotiationTargetPlayerId else { return nil }
         return gameState.pendingTransferOffers.first { $0.playerId == id && $0.isLive && !$0.isIncoming }
+    }
+
+    private var submitButtonLabel: String {
+        if liveOffer?.status == .counterOffer { return "Raise Bid" }
+        if liveOffer?.status == .personalTerms { return "Meet Wage Demand" }
+        return "Submit Bid"
     }
     
     public var body: some View {
@@ -3257,10 +3274,20 @@ public struct NegotiationView: View {
         .navigationBarTitleDisplayMode(.inline)
         .alert("Transfer Update", isPresented: $showOutcome) {
             Button("OK") {
-                if !didSubmit { gameState.currentScreen = .dashboard }
+                gameState.negotiationTargetPlayerId = nil
+                gameState.currentScreen = .dashboard
             }
         } message: {
             Text(outcomeMessage ?? "")
+        }
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    gameState.negotiationTargetPlayerId = nil
+                    gameState.currentScreen = .dashboard
+                }
+                .accessibilityLabel("Cancel negotiation")
+            }
         }
         .onAppear(perform: primeFields)
     }
@@ -3325,12 +3352,13 @@ public struct NegotiationView: View {
             
             Section(header: Text("Your Offer")) {
                 VStack(alignment: .leading) {
-                    Text("Transfer Fee: \(Player.formatCurrency(Int(bidFee)))")
+                    Text(club == nil ? "Free Agent: No Transfer Fee" : "Transfer Fee: \(Player.formatCurrency(Int(bidFee)))")
                     Slider(value: $bidFee, in: 0...max(Double(player.value) * 2.0, 100_000), step: 50_000)
+                        .disabled(club == nil)
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Transfer fee")
-                .accessibilityValue(Player.formatCurrency(Int(bidFee)))
+                .accessibilityValue(club == nil ? "No fee" : Player.formatCurrency(Int(bidFee)))
                 
                 VStack(alignment: .leading) {
                     Text("Weekly Wage: \(Player.formatCurrency(Int(wage)))/w")
@@ -3362,7 +3390,7 @@ public struct NegotiationView: View {
             
             Section {
                 Button(action: submit) {
-                    Text(liveOffer?.status == .counterOffer ? "Raise Bid" : "Submit Bid")
+                    Text(submitButtonLabel)
                         .fontWeight(.bold)
                         .frame(maxWidth: .infinity)
                 }
@@ -3373,12 +3401,20 @@ public struct NegotiationView: View {
     
     private func primeFields() {
         guard let lookup = target else { return }
-        if let offer = liveOffer, let counter = offer.counterFee, offer.status == .counterOffer {
+        let isFreeAgent = lookup.club == nil
+        if let offer = liveOffer, offer.status == .counterOffer, let counter = offer.counterFee {
             bidFee = Double(counter)
+            wage = Double(max(offer.offeredWage ?? lookup.player.wage, 1_000))
+        } else if let offer = liveOffer, offer.status == .personalTerms {
+            bidFee = Double(offer.fee)
+            wage = Double(offer.demandedWage ?? max(lookup.player.wage, 1_000))
+        } else if isFreeAgent {
+            bidFee = 0
+            wage = Double(max(lookup.player.wage, 1_000))
         } else {
             bidFee = Double(lookup.player.value)
+            wage = Double(max(lookup.player.wage, 1_000))
         }
-        wage = Double(max(lookup.player.wage, 1_000))
     }
     
     private func submit() {
@@ -3386,16 +3422,23 @@ public struct NegotiationView: View {
         if let offer = liveOffer, offer.status == .counterOffer {
             gameState.bumpOffer(offerId: offer.id, newFee: Int(bidFee), newWage: Int(wage))
             outcomeMessage = "Your revised offer of \(Player.formatCurrency(Int(bidFee))) has been submitted. Await their response."
+        } else if let offer = liveOffer, offer.status == .personalTerms {
+            gameState.bumpOffer(offerId: offer.id, newFee: offer.fee, newWage: Int(wage))
+            outcomeMessage = "You have offered \(Player.formatCurrency(Int(wage)))/w. The player and his agent will respond shortly."
+        } else if let offer = gameState.submitTransferBid(
+            playerId: id,
+            fee: Int(bidFee),
+            offeredWage: Int(wage),
+            contractYears: contractYears
+        ) {
+            if offer.status == .rejected {
+                outcomeMessage = "The bid could not be submitted. Check the club's transfer budget and weekly wage headroom, then try again."
+            } else {
+                outcomeMessage = "Your bid has been submitted. The selling club will respond in the coming days — watch your inbox."
+            }
         } else {
-            gameState.submitTransferBid(
-                playerId: id,
-                fee: Int(bidFee),
-                offeredWage: Int(wage),
-                contractYears: contractYears
-            )
-            outcomeMessage = "Your bid has been submitted. The selling club will respond in the coming days — watch your inbox."
+            outcomeMessage = "Unable to submit a bid for this player right now."
         }
-        didSubmit = true
         showOutcome = true
         try? SaveManager.shared.autoSave(gameState: gameState)
     }

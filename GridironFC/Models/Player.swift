@@ -746,6 +746,10 @@ public struct Contract: Codable, Hashable {
     public var yearsRemaining: Int
     public var releaseClause: Int?
     public var sellOnPercentage: Double?  // e.g. 0.15 for 15%
+    /// Club entitled to a share of the next transfer fee when a sell-on clause
+    /// exists. Kept on the player's contract because this game stores the
+    /// obligation with the player rather than a separate transfer agreement.
+    public var formerClubId: UUID?
     public var signingDate: String        // "YYYY-MM"
     
     public init(
@@ -753,12 +757,14 @@ public struct Contract: Codable, Hashable {
         yearsRemaining: Int,
         releaseClause: Int? = nil,
         sellOnPercentage: Double? = nil,
+        formerClubId: UUID? = nil,
         signingDate: String = "2024-07"
     ) {
         self.wage = wage
         self.yearsRemaining = yearsRemaining
         self.releaseClause = releaseClause
         self.sellOnPercentage = sellOnPercentage
+        self.formerClubId = formerClubId
         self.signingDate = signingDate
     }
 }

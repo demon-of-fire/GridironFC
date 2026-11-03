@@ -777,7 +777,7 @@ public final class DataLoader {
         var clubIds: [UUID] = []
         for c in clubData {
             let squad = generateProceduralSquad(targetCount: 22, tier: tier)
-            let finances = ClubFinances.defaultFor(tier: tier)
+            let finances = ClubFinances.defaultFor(tier: tier, reputation: c.rep, capacity: c.cap)
             let club = Club(
                 name: c.name,
                 shortName: c.short,

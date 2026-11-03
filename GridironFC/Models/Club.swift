@@ -87,7 +87,11 @@ public struct Club: Codable, Identifiable, Hashable {
         self.manager = manager
         self.academyProspects = academyProspects
         
-        let initialFinances = finances ?? ClubFinances.defaultFor(tier: leagueTier)
+        let initialFinances = finances ?? ClubFinances.defaultFor(
+            tier: leagueTier,
+            reputation: reputation,
+            capacity: stadiumCapacity
+        )
         self.finances = initialFinances
         
         self.staff = staff.isEmpty ? StaffMember.defaultStaffFor(tier: leagueTier) : staff
@@ -529,6 +533,11 @@ public struct Club: Codable, Identifiable, Hashable {
         medicalFacilityLevel = try c.decode(Int.self, forKey: .medicalFacilityLevel)
         tactics = try c.decode(Tactics.self, forKey: .tactics)
         seasonResults = try c.decode([MatchResult].self, forKey: .seasonResults)
+
+        // Repair stale derived values from older saves: the gate model and wage
+        // headroom must reflect the club's real stadium and current squad.
+        finances.stadiumCapacity = stadiumCapacity
+        finances.currentWageBill = totalWeeklyWageBill
     }
 }
 

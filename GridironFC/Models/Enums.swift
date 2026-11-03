@@ -630,7 +630,7 @@ public enum MatchEventType: String, Codable, CaseIterable, Identifiable, Hashabl
     /// Determines whether the event should trigger user attention or commentary highlights.
     public var isMajorEvent: Bool {
         switch self {
-        case .goal, .ownGoal, .redCard, .secondYellow, .penalty, .penaltyMissed, .injury, .halfTime, .fullTime:
+        case .goal, .ownGoal, .redCard, .secondYellow, .penalty, .penaltyMissed, .penaltyShootout, .injury, .halfTime, .fullTime:
             return true
         default:
             return false
