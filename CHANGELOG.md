@@ -221,7 +221,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recalculating its finances.
 - **Transfer negotiations** — counter-offers are no longer overwritten by stale
   state, unanswered counters and wage demands expire instead of auto-resolving,
-  and the negotiation screen can always be dismissed after submitting a bid.
+  revised free-agent wage offers route back to the player, duplicate bids are
+  blocked while a club is considering an offer, and the negotiation screen can
+  always be dismissed after submitting a bid.
 - **Inbox and actions** — opening the Inbox no longer marks every message read,
   so unread badges and filters work; accepting a job or taking over a club now
   only navigates away when the action succeeded.

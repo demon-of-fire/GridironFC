@@ -3476,7 +3476,12 @@ public struct NegotiationView: View {
     private var submitButtonLabel: String {
         if liveOffer?.status == .counterOffer { return "Raise Bid" }
         if liveOffer?.status == .personalTerms { return "Meet Wage Demand" }
+        if liveOffer?.status == .pending || liveOffer?.status == .accepted { return "Await Response" }
         return "Submit Bid"
+    }
+
+    private var isAwaitingResponse: Bool {
+        liveOffer?.status == .pending || liveOffer?.status == .accepted
     }
     
     public var body: some View {
@@ -3611,7 +3616,9 @@ public struct NegotiationView: View {
                         .fontWeight(.bold)
                         .frame(maxWidth: .infinity)
                 }
+                .disabled(isAwaitingResponse)
                 .accessibilityLabel("Submit transfer bid")
+                .accessibilityHint(isAwaitingResponse ? "The selling club has not responded yet" : "")
             }
         }
     }
@@ -3650,6 +3657,8 @@ public struct NegotiationView: View {
         ) {
             if offer.status == .rejected {
                 outcomeMessage = "The bid could not be submitted. Check the club's transfer budget and weekly wage headroom, then try again."
+            } else if gameState.player(withId: id)?.club == nil {
+                outcomeMessage = "Your offer has been submitted. The player and his agent will respond shortly — watch your inbox."
             } else {
                 outcomeMessage = "Your bid has been submitted. The selling club will respond in the coming days — watch your inbox."
             }

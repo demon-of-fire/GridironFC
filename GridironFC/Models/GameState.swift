@@ -744,11 +744,8 @@ public final class GameState: Codable {
             return offer
         }
 
-        // Free agents go straight to personal terms; contract players await the club.
-        if isFreeAgent {
-            offer.status = .personalTerms
-        }
-
+        // Free agents skip the selling-club stage; resolveOffer sends the
+        // sellerless pending offer straight to personal terms.
         pendingTransferOffers.append(offer)
         addNews(
             headline: "Bid Submitted for \(player.fullName)",
@@ -883,9 +880,10 @@ public final class GameState: Codable {
             // on them. Do not let the counterparty auto-resolve the offer on the
             // user's behalf; expire it if they never respond.
             let status = pendingTransferOffers[idx].status
-            if (status == .counterOffer || status == .personalTerms),
-               pendingTransferOffers[idx].weeksUntilResponse > 0 {
-                pendingTransferOffers[idx].weeksUntilResponse -= 1
+            if status == .counterOffer || status == .personalTerms {
+                if pendingTransferOffers[idx].weeksUntilResponse > 0 {
+                    pendingTransferOffers[idx].weeksUntilResponse -= 1
+                }
                 if pendingTransferOffers[idx].weeksUntilResponse <= 0 {
                     expireAwaitingUserDecision(at: idx)
                 }
@@ -2033,8 +2031,8 @@ public final class GameState: Codable {
             let remainder = renewedUserContracts.count > 3 ? " and \(renewedUserContracts.count - 3) more" : ""
             addNews(
                 headline: "Contracts Extended",
-                body: "\(names)\(remainder) have signed short extensions to remain at the club.",
-                category: .board,
+                body: "\(names)\(remainder) have signed one-year extensions to remain at the club. Open a player profile to negotiate a longer deal.",
+                category: .contractExpiry,
                 sender: "Club Secretary"
             )
         }
