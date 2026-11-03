@@ -1807,6 +1807,18 @@ public struct SquadView: View {
     @State private var substitutionBanner: String?
     @State private var isEditingSquad = false
 
+    private var expiringContracts: [Player] {
+        guard let userClub = gameState.userClub else { return [] }
+        return userClub.players
+            .filter { ($0.contract?.yearsRemaining ?? 99) <= 1 }
+            .sorted {
+                let left = $0.contract?.yearsRemaining ?? 0
+                let right = $1.contract?.yearsRemaining ?? 0
+                if left == right { return $0.overall > $1.overall }
+                return left < right
+            }
+    }
+
     public var body: some View {
         ScrollView {
             if let userClub = gameState.userClub {
@@ -1827,6 +1839,42 @@ public struct SquadView: View {
                         .accessibilityHint("Toggles the substitution highlighting mode")
                     }
                     .padding(.horizontal)
+
+                    if !expiringContracts.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("Contracts Expiring", systemImage: "doc.text.fill")
+                                .font(.headline)
+
+                            Text("\(expiringContracts.count) \(expiringContracts.count == 1 ? "player is" : "players are") entering the final year of their deal. Open a profile to offer a renewal.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            ForEach(expiringContracts.prefix(4)) { player in
+                                NavigationLink(destination: PlayerDetailView(playerId: player.id)) {
+                                    HStack {
+                                        Text(player.fullName)
+                                            .font(.subheadline)
+                                        Spacer()
+                                        Text("\(player.contract?.yearsRemaining ?? 0) \(player.contract?.yearsRemaining == 1 ? "year" : "years")")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .padding(.vertical, 2)
+                                }
+                                .buttonStyle(.plain)
+                            }
+
+                            if expiringContracts.count > 4 {
+                                Text("and \(expiringContracts.count - 4) more")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding()
+                        .background(Color(UIColor.secondarySystemGroupedBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .padding(.horizontal)
+                    }
 
                     FormationPitchView(
                         formation: userClub.tactics.formation,
@@ -2871,6 +2919,7 @@ public struct StatComparisonRow: View {
 public struct PlayerDetailView: View {
     @Environment(GameState.self) private var gameState
     public let playerId: UUID
+    @State private var showingRenewal = false
     
     public var body: some View {
         ScrollView {
@@ -2976,6 +3025,53 @@ public struct PlayerDetailView: View {
                     .padding()
                     .background(Color(UIColor.secondarySystemGroupedBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 16))
+
+                    // Contract status and renewal for players at the user's club.
+                    if let contract = player.contract, let userClub = gameState.userClub, club?.id == userClub.id {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Contract").font(.headline)
+
+                            HStack {
+                                Text("Weekly Wage").foregroundStyle(.secondary)
+                                Spacer()
+                                Text(Player.formatCurrency(contract.wage)).fontWeight(.semibold)
+                            }
+                            HStack {
+                                Text("Years Remaining").foregroundStyle(.secondary)
+                                Spacer()
+                                Text("\(contract.yearsRemaining)").fontWeight(.semibold)
+                            }
+                            if let releaseClause = contract.releaseClause {
+                                HStack {
+                                    Text("Release Clause").foregroundStyle(.secondary)
+                                    Spacer()
+                                    Text(Player.formatCurrency(releaseClause)).fontWeight(.semibold)
+                                }
+                            }
+
+                            if contract.yearsRemaining <= 2 {
+                                Text("This contract is nearing expiry. Offer a new deal to keep \(player.firstName) at the club.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+
+                                Button {
+                                    showingRenewal = true
+                                } label: {
+                                    Label("Offer New Contract", systemImage: "square.and.pencil")
+                                        .fontWeight(.semibold)
+                                        .frame(maxWidth: .infinity)
+                                        .padding()
+                                        .background(Color.accentColor)
+                                        .foregroundStyle(.white)
+                                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                                }
+                                .accessibilityLabel("Offer \(player.fullName) a new contract")
+                            }
+                        }
+                        .padding()
+                        .background(Color(UIColor.secondarySystemGroupedBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
                     
                     // Transfer action: only for players not already at the user's club.
                     if let userClub = gameState.userClub, club?.id != userClub.id {
@@ -3005,6 +3101,127 @@ public struct PlayerDetailView: View {
                 Button("Done") { gameState.currentScreen = .squad }
                     .accessibilityLabel("Close player profile")
             }
+        }
+        .sheet(isPresented: $showingRenewal) {
+            ContractRenewalView(playerId: playerId)
+        }
+    }
+}
+
+// MARK: - Contract Renewal
+
+public struct ContractRenewalView: View {
+    @Environment(GameState.self) private var gameState
+    @Environment(\.dismiss) private var dismiss
+
+    public let playerId: UUID
+
+    @State private var wage: Double = 1_000
+    @State private var years = 3
+    @State private var outcomeMessage: String?
+    @State private var showOutcome = false
+    @State private var acceptedOffer = false
+
+    private var lookup: (player: Player, club: Club?)? {
+        gameState.player(withId: playerId)
+    }
+
+    public var body: some View {
+        NavigationStack {
+            Group {
+                if let lookup = lookup {
+                    form(for: lookup.player)
+                } else {
+                    ContentUnavailableView("Player Not Found", systemImage: "person.slash")
+                }
+            }
+            .navigationTitle("Renew Contract")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+            .onAppear(perform: primeFields)
+            .alert("Contract Offer", isPresented: $showOutcome) {
+                Button("OK") {
+                    showOutcome = false
+                    if acceptedOffer { dismiss() }
+                }
+            } message: {
+                Text(outcomeMessage ?? "")
+            }
+        }
+    }
+
+    private func form(for player: Player) -> some View {
+        Form {
+            Section(header: Text("Current Contract")) {
+                row("Weekly Wage", Player.formatCurrency(player.contract?.wage ?? 0))
+                row("Years Remaining", "\(player.contract?.yearsRemaining ?? 0)")
+                row("Expected Wage", "\(Player.formatCurrency(gameState.contractRenewalWage(for: player)))/w")
+            }
+
+            Section(header: Text("New Terms")) {
+                VStack(alignment: .leading) {
+                    Text("Weekly Wage: \(Player.formatCurrency(Int(wage)))/w")
+                    Slider(value: $wage, in: 500...wageUpperBound(for: player), step: 500)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("New weekly wage")
+                .accessibilityValue("\(Player.formatCurrency(Int(wage))) per week")
+
+                Stepper("Contract Length: \(years) \(years == 1 ? "year" : "years")", value: $years, in: 1...5)
+            }
+
+            if let userClub = gameState.userClub {
+                Section(header: Text("Budget Check")) {
+                    row("Wage Headroom", "\(Player.formatCurrency(userClub.finances.weeklyWageSurplus))/w")
+                }
+            }
+
+            Section {
+                Button(action: submit) {
+                    Text("Offer Contract")
+                        .fontWeight(.bold)
+                        .frame(maxWidth: .infinity)
+                }
+                .accessibilityLabel("Offer \(player.fullName) a new contract")
+            }
+        }
+    }
+
+    private func row(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            Text(value).fontWeight(.semibold)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label): \(value)")
+    }
+
+    private func wageUpperBound(for player: Player) -> Double {
+        let demand = Double(gameState.contractRenewalWage(for: player))
+        let currentBased = max(Double(player.wage) * 4, 80_000)
+        return max(demand * 1.25, currentBased)
+    }
+
+    private func primeFields() {
+        guard let player = lookup?.player else { return }
+        wage = Double(gameState.contractRenewalWage(for: player))
+        let currentYears = player.contract?.yearsRemaining ?? 1
+        years = min(5, max(2, currentYears + 1))
+    }
+
+    private func submit() {
+        guard let player = lookup?.player else { return }
+        let result = gameState.renewContract(playerId: player.id, wage: Int(wage), years: years)
+        acceptedOffer = result.accepted
+        outcomeMessage = result.message
+        showOutcome = true
+        if result.accepted {
+            try? SaveManager.shared.autoSave(gameState: gameState)
         }
     }
 }

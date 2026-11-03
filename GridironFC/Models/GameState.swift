@@ -63,6 +63,22 @@ public struct NewsItem: Codable, Identifiable, Hashable {
     }
 }
 
+// MARK: - Contract Renewal
+
+/// Outcome of a contract-renewal offer. `demandedWage` is populated when the
+/// player turns the offer down, so the UI can show what it would take to agree.
+public struct ContractRenewalResult: Equatable {
+    public let accepted: Bool
+    public let demandedWage: Int?
+    public let message: String
+
+    public init(accepted: Bool, demandedWage: Int? = nil, message: String) {
+        self.accepted = accepted
+        self.demandedWage = demandedWage
+        self.message = message
+    }
+}
+
 // MARK: - Game State Class
 
 @Observable
@@ -773,6 +789,81 @@ public final class GameState: Codable {
         }
         demand *= Double.random(in: 0.95...1.15)
         return max(500, Int(demand))
+    }
+
+    // MARK: - Contract Renewals
+
+    /// The wage a player would expect when extending at the user's club. Kept
+    /// deterministic so the figure shown in the renewal screen is the figure the
+    /// player actually judges the offer against.
+    public func contractRenewalWage(for player: Player) -> Int {
+        let reputation = userClub?.reputation ?? 70
+        let base = max(1_000, max(player.wage, player.value / 250))
+        var multiplier = 1.08
+        if player.age <= 23, player.potential - player.overall >= 8 {
+            multiplier += 0.07
+        }
+        if player.age >= 33 {
+            multiplier -= 0.04
+        }
+        if (player.contract?.yearsRemaining ?? 1) <= 1 {
+            multiplier += 0.03
+        }
+        multiplier += Double(max(0, reputation - 60)) / 500.0
+        return max(500, Int(Double(base) * multiplier))
+    }
+
+    /// Offers a new contract to a player already at the user's club. The club
+    /// must be able to absorb any wage increase within its existing wage budget.
+    @discardableResult
+    public func renewContract(playerId: UUID, wage: Int, years: Int) -> ContractRenewalResult {
+        guard let clubIdx = clubs.firstIndex(where: { $0.isUserClub }) else {
+            return ContractRenewalResult(accepted: false, message: "You do not currently control a club.")
+        }
+        guard let playerIdx = clubs[clubIdx].players.firstIndex(where: { $0.id == playerId }),
+              let currentContract = clubs[clubIdx].players[playerIdx].contract else {
+            return ContractRenewalResult(accepted: false, message: "This player is not under contract at your club.")
+        }
+        guard wage > 0, years >= 1, years <= 5 else {
+            return ContractRenewalResult(accepted: false, message: "Choose a positive wage and a contract length between one and five years.")
+        }
+
+        let player = clubs[clubIdx].players[playerIdx]
+        let demand = contractRenewalWage(for: player)
+        guard wage >= demand else {
+            return ContractRenewalResult(
+                accepted: false,
+                demandedWage: demand,
+                message: "\(player.fullName) wants at least \(Player.formatCurrency(demand))/w to extend. Your offer of \(Player.formatCurrency(wage))/w was not enough."
+            )
+        }
+
+        let projectedBill = clubs[clubIdx].totalWeeklyWageBill - currentContract.wage + wage
+        guard projectedBill <= clubs[clubIdx].finances.wageBudget else {
+            return ContractRenewalResult(
+                accepted: false,
+                message: "The board cannot approve this deal. It would take the weekly wage bill to \(Player.formatCurrency(projectedBill)), above the \(Player.formatCurrency(clubs[clubIdx].finances.wageBudget))/w limit."
+            )
+        }
+
+        var updated = currentContract
+        updated.wage = wage
+        updated.yearsRemaining = years
+        updated.signingDate = season.currentDate
+        clubs[clubIdx].players[playerIdx].contract = updated
+        clubs[clubIdx].finances.currentWageBill = clubs[clubIdx].totalWeeklyWageBill
+
+        addNews(
+            headline: "\(player.fullName) Signs New Contract",
+            body: "\(player.fullName) has committed to \(clubs[clubIdx].name) on a \(years)-year deal worth \(Player.formatCurrency(wage))/w.",
+            category: .contractExpiry,
+            sender: "Director of Football"
+        )
+
+        return ContractRenewalResult(
+            accepted: true,
+            message: "\(player.fullName) has signed a new \(years)-year contract at \(Player.formatCurrency(wage))/w."
+        )
     }
 
     /// Resolves every live transfer negotiation one step: selling clubs evaluate

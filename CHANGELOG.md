@@ -50,6 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Contract renewals** — offer new deals to players entering the final years
+  of their contracts directly from their profile. Renewals show the player's
+  expected wage and let you choose the length, with board wage-budget validation,
+  a confirmed contract update and a squad warning listing expiring deals.
 - **Career resignation flow** — managers can now resign from My Profile and
   immediately enter the vacancy market while retaining their career history.
 - **Manager pressure and match psychology** — the board now tracks confidence,
