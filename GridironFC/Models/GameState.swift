@@ -191,7 +191,97 @@ public final class GameState: Codable {
         self.nationalTeams = nationalTeams
         self.internationalTournaments = internationalTournaments
         self.managedNationalTeamId = managedNationalTeamId
-    }    // MARK: - Computed Properties
+    }
+
+    // MARK: - Career Snapshots
+
+    /// Copies every persisted property from another snapshot into this instance.
+    /// SwiftUI views hold a reference to the existing `GameState`, so loading a
+    /// manual slot must mutate that instance rather than replace it.
+    public func adopt(_ other: GameState) {
+        gameMode = other.gameMode
+        clubs = other.clubs
+        leagues = other.leagues
+        season = other.season
+        userClubId = other.userClubId
+        freeAgents = other.freeAgents
+        transferHistory = other.transferHistory
+        pendingTransferOffers = other.pendingTransferOffers
+        news = other.news
+        currentScreen = other.currentScreen
+        isMatchInProgress = other.isMatchInProgress
+        activeMatchFixtureId = other.activeMatchFixtureId
+        negotiationTargetPlayerId = other.negotiationTargetPlayerId
+        soundEnabled = other.soundEnabled
+        matchSettings = other.matchSettings
+        manager = other.manager
+        jobOffers = other.jobOffers
+        owner = other.owner
+        lastTrainingWeek = other.lastTrainingWeek
+        jobSecurity = other.jobSecurity
+        teamTalk = other.teamTalk
+        teamTalkAppliedWeek = other.teamTalkAppliedWeek
+        europeanCompetitions = other.europeanCompetitions
+        europeanMatchweek = other.europeanMatchweek
+        nationalTeams = other.nationalTeams
+        internationalTournaments = other.internationalTournaments
+        managedNationalTeamId = other.managedNationalTeamId
+    }
+
+    /// Rebuilds the world from the bundled data so starting a new career never
+    /// inherits the previously auto-loaded save's season, inbox, offers or manager.
+    public func startFreshCareer(mode: GameMode) {
+        let (freshClubs, freshLeagues) = DataLoader.loadAllData()
+
+        var fixtures: [Fixture] = []
+        for league in freshLeagues {
+            fixtures.append(contentsOf: FixtureGenerator.generateDoubleRoundRobin(
+                clubIds: league.clubIds,
+                competitionName: league.name,
+                startDateString: "2026-08-08"
+            ))
+        }
+
+        clubs = freshClubs
+        leagues = freshLeagues
+        season = Season(
+            year: "2026-27",
+            currentWeek: 1,
+            currentPhase: .preseason,
+            fixtures: fixtures,
+            currentDate: "2026-08-01"
+        )
+        gameMode = mode
+        userClubId = nil
+        freeAgents = []
+        transferHistory = []
+        pendingTransferOffers = []
+        news = []
+        currentScreen = mode == .createClub ? .clubCreation : .managerCreation
+        isMatchInProgress = false
+        activeMatchFixtureId = nil
+        negotiationTargetPlayerId = nil
+        soundEnabled = true
+        matchSettings = MatchSettings()
+        manager = ManagerProfile()
+        jobOffers = []
+        owner = OwnerProfile()
+        lastTrainingWeek = nil
+        jobSecurity = JobSecurity()
+        teamTalk = nil
+        teamTalkAppliedWeek = nil
+        europeanCompetitions = EuropeanCompetitionBuilder.build(from: freshClubs)
+        europeanMatchweek = 0
+        nationalTeams = DataLoader.loadNationalTeams()
+        internationalTournaments = []
+        managedNationalTeamId = nil
+
+        seedFreeAgents()
+        seedAcademies()
+        seedInternationalTournaments()
+    }
+
+    // MARK: - Computed Properties
     
     public var userClub: Club? {
         guard let id = userClubId else { return nil }
@@ -528,6 +618,33 @@ public final class GameState: Codable {
         managedNationalTeamId = nil
     }
 
+    /// Adds or removes a player from the national-team call-up list. The list is
+    /// seeded with the strongest 23 players the first time it is edited, and is
+    /// never allowed below eleven so a matchday XI can always be fielded.
+    public func toggleNationalCallUp(teamId: String, playerId: UUID) {
+        guard let idx = nationalTeams.firstIndex(where: { $0.id == teamId }) else { return }
+        var team = nationalTeams[idx]
+        guard team.players.contains(where: { $0.id == playerId }) else { return }
+
+        var ids = team.selectedPlayerIds
+            ?? team.players.sorted { $0.overall > $1.overall }.prefix(23).map { $0.id }
+
+        if let existing = ids.firstIndex(of: playerId) {
+            guard ids.count > 11 else { return }
+            ids.remove(at: existing)
+        } else {
+            ids.append(playerId)
+        }
+        team.selectedPlayerIds = ids
+        nationalTeams[idx] = team
+    }
+
+    /// Clears the manual call-up list so the strongest available eleven is used.
+    public func resetNationalCallUps(teamId: String) {
+        guard let idx = nationalTeams.firstIndex(where: { $0.id == teamId }) else { return }
+        nationalTeams[idx].selectedPlayerIds = nil
+    }
+
     /// Advances all international tournaments one round, simulating every unplayed
     /// fixture from national-team strength.
     public func advanceInternationalTournaments() {
@@ -630,7 +747,9 @@ public final class GameState: Codable {
             matchWeek: fixture.matchWeek,
             competition: fixture.competition,
             date: fixture.date,
-            isKnockout: false
+            isKnockout: false,
+            autoSubTiming: matchSettings.autoSubTiming,
+            autoSubAggression: matchSettings.autoSubAggression
         )
         
         let result = MatchEngine.simulateFullMatch(home: &homeClub, away: &awayClub, config: config)

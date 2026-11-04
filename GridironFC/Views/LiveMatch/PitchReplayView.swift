@@ -254,6 +254,12 @@ public struct LiveMatchView: View {
                     Text("\(minute)'")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if minute >= replayEndMinute, let shootout = shootoutSummary {
+                        Text(shootout)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
                 }
                 
                 HStack(spacing: 8) {
@@ -307,7 +313,7 @@ public struct LiveMatchView: View {
                     .background(Color.secondary.opacity(0.15))
                     .clipShape(RoundedRectangle(cornerRadius: 10))
             }
-            .disabled(minute >= 90)
+            .disabled(minute >= replayEndMinute)
             .accessibilityLabel(isPlaying ? "Pause replay" : "Play replay")
             
             Button {
@@ -335,6 +341,19 @@ public struct LiveMatchView: View {
         (result?.goalEvents ?? []).filter { $0.minute <= minute && !$0.isHomeTeam }.count
     }
     
+    /// Replays every minute the engine actually produced, including stoppage
+    /// time, extra time and a shootout, rather than stopping rigidly at 90'.
+    private var replayEndMinute: Int {
+        let lastEvent = result?.events.map(\.minute).max() ?? 90
+        return max(90, min(130, lastEvent))
+    }
+    
+    private var shootoutSummary: String? {
+        result?.events
+            .last { $0.type == .penaltyShootout && $0.shortText.contains("win on penalties") }?
+            .shortText
+    }
+    
     private var scoreText: String {
         "\(currentHomeGoals) - \(currentAwayGoals)"
     }
@@ -355,14 +374,14 @@ public struct LiveMatchView: View {
     }
     
     private func startTicker() {
-        guard minute < 90 else { return }
+        guard minute < replayEndMinute else { return }
         isPlaying = true
         ticker?.invalidate()
         let interval = gameState.matchSettings.speed.tickInterval
         ticker = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { timer in
             Task { @MainActor in
                 advanceMinute()
-                if minute >= 90 {
+                if minute >= replayEndMinute {
                     timer.invalidate()
                     isPlaying = false
                 } else if gameState.matchSettings.stopAtHalfTime && minute == 45 {
@@ -382,7 +401,7 @@ public struct LiveMatchView: View {
     
     private func advanceMinute() {
         let previous = minute
-        minute = min(90, minute + 1)
+        minute = min(replayEndMinute, minute + 1)
         
         // Announce major events as their minute arrives.
         let newEvents = (result?.events ?? []).filter {
@@ -402,7 +421,7 @@ public struct LiveMatchView: View {
             if !gameState.season.fixtures[idx].isPlayed {
                 gameState.simulateMatch(fixture: &gameState.season.fixtures[idx])
             }
-            minute = 90
+            minute = replayEndMinute
             gameState.finishMatchweekAfterUserMatch()
             gameState.currentScreen = .postMatch
         }

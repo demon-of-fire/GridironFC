@@ -326,7 +326,9 @@ public struct MainMenuView: View {
     }
     
     private func startMode(_ mode: GameMode) {
-        gameState.gameMode = mode
+        // Always begin from a clean world so a new career cannot inherit the
+        // auto-loaded save's season, inbox, job offers or manager profile.
+        gameState.startFreshCareer(mode: mode)
         // Owner careers begin by founding their club; manager careers begin by
         // creating the person who will run training and matches.
         gameState.currentScreen = mode == .createClub ? .clubCreation : .managerCreation
@@ -1885,16 +1887,15 @@ public struct SquadView: View {
                                 gameState.currentScreen = .playerDetail(player.id)
                                 return
                             }
-                            if let selected = selectedStarterId, selected != player.id {
+                            if selectedStarterId == player.id {
                                 selectedStarterId = nil
                                 substitutionBanner = nil
                             } else {
-                                selectedStarterId = (selectedStarterId == player.id) ? nil : player.id
-                                if let id = selectedStarterId,
-                                   let p = userClub.players.first(where: { $0.id == id }) {
+                                selectedStarterId = player.id
+                                if let p = userClub.players.first(where: { $0.id == player.id }) {
                                     substitutionBanner = "Selected \(p.displayName) — tap a substitute below to swap."
                                 } else {
-                                    substitutionBanner = nil
+                                    substitutionBanner = "Selected \(player.displayName) — tap a substitute below to swap."
                                 }
                             }
                         }
@@ -2479,7 +2480,8 @@ public struct PlayerSearchView: View {
     @Environment(GameState.self) private var gameState
     @State private var positionCategory: PositionCategory? = nil
     @State private var minOverall = 0
-    @State private var maxAge = 99
+    @State private var anyAge = true
+    @State private var maxAge = 30
     @State private var includeFreeAgents = false
     @State private var maxFeeFilter: Int? = nil
     @State private var sortMode: SortMode = .overall
@@ -2498,7 +2500,7 @@ public struct PlayerSearchView: View {
         let base = gameState.searchPlayers(
             positionCategory: positionCategory,
             minOverall: minOverall,
-            maxAge: maxAge,
+            maxAge: anyAge ? 99 : maxAge,
             maxFee: maxFeeFilter,
             includeFreeAgents: includeFreeAgents
         )
@@ -2535,12 +2537,36 @@ public struct PlayerSearchView: View {
                 }
 
                 HStack {
-                    Text("Max Age: \(maxAge == 99 ? "Any" : "\(maxAge)")")
-                    Slider(value: Binding(
-                        get: { Double(maxAge) },
-                        set: { maxAge = Int($0) }
-                    ), in: 16...40, step: 1)
+                    Text("Max Age: \(anyAge ? "Any" : "\(maxAge)")")
+                    if !anyAge {
+                        Slider(value: Binding(
+                            get: { Double(maxAge) },
+                            set: { maxAge = Int($0) }
+                        ), in: 16...40, step: 1)
+                    }
                 }
+
+                Toggle("Any Age", isOn: Binding(
+                    get: { anyAge },
+                    set: { newValue in
+                        anyAge = newValue
+                        if !newValue && (maxAge < 16 || maxAge > 40) { maxAge = 30 }
+                    }
+                ))
+                .accessibilityHint("When on, players of every age are included")
+
+                Picker("Max Fee", selection: $maxFeeFilter) {
+                    Text("Any").tag(Int?.none)
+                    Text("£250k").tag(Int?.some(250_000))
+                    Text("£500k").tag(Int?.some(500_000))
+                    Text("£1m").tag(Int?.some(1_000_000))
+                    Text("£2.5m").tag(Int?.some(2_500_000))
+                    Text("£5m").tag(Int?.some(5_000_000))
+                    Text("£10m").tag(Int?.some(10_000_000))
+                    Text("£25m").tag(Int?.some(25_000_000))
+                    Text("£50m").tag(Int?.some(50_000_000))
+                }
+                .accessibilityHint("Only show players valued at or below this fee")
 
                 Toggle("Include Free Agents", isOn: $includeFreeAgents)
                     .accessibilityHint("Free agents are hidden unless this is switched on")
@@ -3263,6 +3289,8 @@ public struct SettingsView: View {
     @Environment(GameState.self) private var gameState
     @State private var alertMessage: String?
     @State private var showAlert = false
+    @State private var slotPendingDelete: SaveSlot?
+    @State private var slotPendingLoad: SaveSlot?
     
     public var body: some View {
         List {
@@ -3321,38 +3349,88 @@ public struct SettingsView: View {
             Section(header: Text("Manual Save Slots")) {
                 ForEach([SaveSlot.slot1, SaveSlot.slot2, SaveSlot.slot3], id: \.self) { slot in
                     let metadata = SaveManager.shared.getMetadata(for: slot)
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(slot.displayName)
-                                .font(.headline)
-                            if let meta = metadata {
-                                Text("\(meta.clubName) • Season \(meta.seasonYear)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Text("Saved: \(meta.formattedRealDate)")
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                            } else {
-                                Text("Empty Slot")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(slot.displayName)
+                                    .font(.headline)
+                                if let meta = metadata {
+                                    Text("\(meta.clubName) • Season \(meta.seasonYear)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Text("Saved: \(meta.formattedRealDate)")
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                } else {
+                                    Text("Empty Slot")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+
+                            Spacer()
+                            Text(metadata == nil ? "—" : "Ready")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .accessibilityHidden(true)
+                        }
+
+                        HStack(spacing: 8) {
+                            Button("Save") {
+                                do {
+                                    try SaveManager.shared.save(gameState: gameState, to: slot)
+                                    alertMessage = "Career saved to \(slot.displayName)."
+                                    showAlert = true
+                                } catch {
+                                    alertMessage = "Save failed: \(error.localizedDescription)"
+                                    showAlert = true
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityLabel("Save to \(slot.displayName)")
+
+                            if metadata != nil {
+                                Button("Load") {
+                                    slotPendingLoad = slot
+                                }
+                                .buttonStyle(.bordered)
+                                .accessibilityLabel("Load \(slot.displayName)")
+
+                                Button("Delete", role: .destructive) {
+                                    slotPendingDelete = slot
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(.red)
+                                .accessibilityLabel("Delete \(slot.displayName)")
                             }
                         }
-                        
-                        Spacer()
-                        
-                        Button("Save") {
-                            do {
-                                try SaveManager.shared.save(gameState: gameState, to: slot)
-                                alertMessage = "Career saved to \(slot.displayName)."
-                                showAlert = true
-                            } catch {
-                                alertMessage = "Save failed: \(error.localizedDescription)"
-                                showAlert = true
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                        .accessibilityLabel("Save to \(slot.displayName)")
+                    }
+                    .padding(.vertical, 4)
+                    .confirmationDialog(
+                        "Load \(slot.displayName)?",
+                        isPresented: Binding(
+                            get: { slotPendingLoad == slot },
+                            set: { if !$0 { slotPendingLoad = nil } }
+                        ),
+                        titleVisibility: .visible
+                    ) {
+                        Button("Load Save", role: .destructive) { load(slot) }
+                        Button("Cancel", role: .cancel) { slotPendingLoad = nil }
+                    } message: {
+                        Text("Any unsaved progress in the current career will be replaced.")
+                    }
+                    .confirmationDialog(
+                        "Delete \(slot.displayName)?",
+                        isPresented: Binding(
+                            get: { slotPendingDelete == slot },
+                            set: { if !$0 { slotPendingDelete = nil } }
+                        ),
+                        titleVisibility: .visible
+                    ) {
+                        Button("Delete Save", role: .destructive) { delete(slot) }
+                        Button("Cancel", role: .cancel) { slotPendingDelete = nil }
+                    } message: {
+                        Text("This cannot be undone.")
                     }
                 }
             }
@@ -3381,6 +3459,32 @@ public struct SettingsView: View {
         }
         .alert(isPresented: $showAlert) {
             Alert(title: Text("Save Manager"), message: Text(alertMessage ?? ""), dismissButton: .default(Text("OK")))
+        }
+    }
+
+    private func load(_ slot: SaveSlot) {
+        slotPendingLoad = nil
+        do {
+            let loaded = try SaveManager.shared.load(from: slot)
+            gameState.adopt(loaded)
+            gameState.currentScreen = gameState.userClub != nil ? .dashboard : .jobOffers
+            alertMessage = "Loaded \(slot.displayName) — \(loaded.userClub?.name ?? "career")."
+            showAlert = true
+        } catch {
+            alertMessage = "Load failed: \(error.localizedDescription)"
+            showAlert = true
+        }
+    }
+
+    private func delete(_ slot: SaveSlot) {
+        slotPendingDelete = nil
+        do {
+            try SaveManager.shared.deleteSave(for: slot)
+            alertMessage = "\(slot.displayName) deleted."
+            showAlert = true
+        } catch {
+            alertMessage = "Delete failed: \(error.localizedDescription)"
+            showAlert = true
         }
     }
 }
@@ -3912,6 +4016,13 @@ public struct InternationalHubView: View {
                             .foregroundStyle(.red)
                             .accessibilityHint("Step down as national team manager")
                     }
+                    NavigationLink(destination: NationalSquadView(teamId: team.id)) {
+                        Label("Manage Squad", systemImage: "person.3.fill")
+                    }
+                    .accessibilityHint("Pick the players called up for international duty")
+                    Text("\(team.selectedPlayerIds?.count ?? min(23, team.players.count)) called up • Projected strength \(Int(team.strength))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 } else {
                     Text("You are not managing a national team.")
                         .font(.caption)
@@ -4031,6 +4142,89 @@ public struct InternationalHubView: View {
                 default: return lhs.name < rhs.name
                 }
             }
+    }
+}
+
+// MARK: - National Squad Selection
+
+public struct NationalSquadView: View {
+    @Environment(GameState.self) private var gameState
+    public let teamId: String
+
+    private var team: NationalTeam? {
+        gameState.nationalTeam(withId: teamId)
+    }
+
+    /// The effective call-up list, mirroring the default used by GameState.
+    private var selectedIds: Set<UUID> {
+        guard let team else { return [] }
+        if let ids = team.selectedPlayerIds { return Set(ids) }
+        return Set(team.players.sorted { $0.overall > $1.overall }.prefix(23).map { $0.id })
+    }
+
+    private var sortedPlayers: [Player] {
+        (team?.players ?? []).sorted { lhs, rhs in
+            if lhs.overall != rhs.overall { return lhs.overall > rhs.overall }
+            return lhs.lastName < rhs.lastName
+        }
+    }
+
+    public var body: some View {
+        List {
+            if let team {
+                Section(header: Text("Selection")) {
+                    HStack {
+                        Text("Players Called Up")
+                        Spacer()
+                        Text("\(selectedIds.count)")
+                            .fontWeight(.bold)
+                    }
+                    HStack {
+                        Text("Projected Strength")
+                        Spacer()
+                        Text("\(Int(team.strength))")
+                            .fontWeight(.bold)
+                    }
+                    Button("Reset to Best Available XI") {
+                        gameState.resetNationalCallUps(teamId: teamId)
+                    }
+                    .accessibilityHint("Clears manual selections and uses the strongest eleven")
+                }
+
+                Section(header: Text("Squad")) {
+                    ForEach(sortedPlayers, id: \.id) { player in
+                        Button {
+                            gameState.toggleNationalCallUp(teamId: teamId, playerId: player.id)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: selectedIds.contains(player.id) ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(selectedIds.contains(player.id) ? Color.accentColor : Color.secondary)
+                                    .font(.title3)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(player.fullName)
+                                        .foregroundStyle(.primary)
+                                    Text("\(player.primaryPosition.abbreviation) • Age \(player.age)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text("\(player.overall)")
+                                    .fontWeight(.bold)
+                                    .foregroundStyle(.primary)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(player.fullName), \(player.primaryPosition.displayName), rated \(player.overall)")
+                        .accessibilityValue(selectedIds.contains(player.id) ? "Called up" : "Not called up")
+                    }
+                }
+            } else {
+                ContentUnavailableView("Nation Unavailable", systemImage: "globe", description: Text("This national team is no longer available."))
+            }
+        }
+        .navigationTitle(team?.name ?? "National Squad")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

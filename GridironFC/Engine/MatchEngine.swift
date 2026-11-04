@@ -19,19 +19,26 @@ public struct MatchEngine {
         public var competition: String
         public var date: String
         public var isKnockout: Bool
+        /// Assistant-manager substitution policy for this fixture.
+        public var autoSubTiming: MatchSettings.AutoSubTiming
+        public var autoSubAggression: MatchSettings.AutoSubAggression
         
         public init(
             neutralVenue: Bool = false,
             matchWeek: Int = 1,
             competition: String = "League Match",
             date: String = "2024-09-01",
-            isKnockout: Bool = false
+            isKnockout: Bool = false,
+            autoSubTiming: MatchSettings.AutoSubTiming = .secondHalf,
+            autoSubAggression: MatchSettings.AutoSubAggression = .balanced
         ) {
             self.neutralVenue = neutralVenue
             self.matchWeek = matchWeek
             self.competition = competition
             self.date = date
             self.isKnockout = isKnockout
+            self.autoSubTiming = autoSubTiming
+            self.autoSubAggression = autoSubAggression
         }
     }
     
@@ -45,6 +52,10 @@ public struct MatchEngine {
         var assists: Int = 0
         var yellowCards: Int = 0
         var isSentOff: Bool = false
+        /// True when the dismissal came from a second bookable offence rather
+        /// than a straight red card. The two carry different ban lengths and
+        /// only a lone yellow counts toward the five-card accumulation.
+        var isSecondYellow: Bool = false
         var isSubstitutedOut: Bool = false
         var minutesPlayed: Int = 0
         
@@ -212,30 +223,47 @@ public struct MatchEngine {
             updateFatigue(activePlayers: &homeActive, tactics: homeClub.tactics)
             updateFatigue(activePlayers: &awayActive, tactics: awayClub.tactics)
             
-            // 3. AI / Tactical Substitutions (Between 58' and 82')
-            if minute >= 58 && minute <= 82 {
-                tryPerformSubstitution(
-                    activePlayers: &homeActive,
-                    bench: &homeBench,
-                    subsUsed: &homeSubsUsed,
-                    maxSubs: maxSubs,
-                    club: homeClub,
-                    isHome: true,
-                    minute: minute,
-                    events: &events,
-                    departed: &homeDeparted
-                )
-                tryPerformSubstitution(
-                    activePlayers: &awayActive,
-                    bench: &awayBench,
-                    subsUsed: &awaySubsUsed,
-                    maxSubs: maxSubs,
-                    club: awayClub,
-                    isHome: false,
-                    minute: minute,
-                    events: &events,
-                    departed: &awayDeparted
-                )
+            // 3. Assistant-manager substitutions, honouring the user's settings.
+            let subWindow: ClosedRange<Int>?
+            switch config.autoSubTiming {
+            case .off: subWindow = nil
+            case .halfTime: subWindow = 45...45
+            case .secondHalf: subWindow = 58...82
+            case .throughout: subWindow = 46...85
+            }
+            if let subWindow, subWindow.contains(minute) {
+                let limit = min(maxSubs, config.autoSubAggression.maxSubs)
+                let threshold = config.autoSubAggression.fatigueThreshold
+                // At half-time the assistant can use the interval to make every
+                // permitted change at once; otherwise one change per side per minute.
+                let attempts = config.autoSubTiming == .halfTime ? max(1, limit) : 1
+                for _ in 0..<attempts {
+                    let homeSub = tryPerformSubstitution(
+                        activePlayers: &homeActive,
+                        bench: &homeBench,
+                        subsUsed: &homeSubsUsed,
+                        maxSubs: limit,
+                        club: homeClub,
+                        isHome: true,
+                        minute: minute,
+                        fatigueThreshold: threshold,
+                        events: &events,
+                        departed: &homeDeparted
+                    )
+                    let awaySub = tryPerformSubstitution(
+                        activePlayers: &awayActive,
+                        bench: &awayBench,
+                        subsUsed: &awaySubsUsed,
+                        maxSubs: limit,
+                        club: awayClub,
+                        isHome: false,
+                        minute: minute,
+                        fatigueThreshold: threshold,
+                        events: &events,
+                        departed: &awayDeparted
+                    )
+                    if !homeSub && !awaySub { break }
+                }
             }
             
             // 4. Calculate relative team strengths for this minute
@@ -296,9 +324,19 @@ public struct MatchEngine {
             
             // The defending side's tactical solidity reduces the chance of events.
             let defendingTactics = isHomeInPossession ? awayClub.tactics : homeClub.tactics
-            let defenceModifier = 1.0 / defensiveFactor(tactics: defendingTactics)
-            
-            if eventRoll < (8.5 * tempoChanceModifier * marginModifier * defenceModifier) {
+            let defenceModifier = max(0.5, 1.0 / max(0.5, defensiveFactor(tactics: defendingTactics)))
+
+            // Roll bands must stay strictly ordered. An exposed defence (or a high
+            // tempo) can push the raw open-play chance band past the corner, free-kick
+            // and foul bands; without clamping, those later bands would become
+            // unreachable and the injury roll could swallow impossible ranges.
+            let chanceThreshold = max(1.0, min(12.0, 8.5 * tempoChanceModifier * marginModifier * defenceModifier))
+            let cornerThreshold = max(chanceThreshold + 2.0, 13.0 * tempoChanceModifier)
+            let freeKickThreshold = max(cornerThreshold + 1.5, 14.5 * tempoChanceModifier)
+            let foulThreshold = max(freeKickThreshold + 2.0, 18.0)
+            let injuryThreshold = foulThreshold + 1.5
+
+            if eventRoll < chanceThreshold {
                 // Open play chance
                 resolveChance(
                     isHomeAttacking: isHomeInPossession,
@@ -319,7 +357,7 @@ public struct MatchEngine {
                     minute: minute,
                     events: &events
                 )
-            } else if eventRoll < (13.0 * tempoChanceModifier) {
+            } else if eventRoll < cornerThreshold {
                 // Corner Kick
                 resolveCorner(
                     isHomeAttacking: isHomeInPossession,
@@ -340,7 +378,7 @@ public struct MatchEngine {
                     minute: minute,
                     events: &events
                 )
-            } else if eventRoll < (14.5 * tempoChanceModifier) {
+            } else if eventRoll < freeKickThreshold {
                 // Dangerous Free Kick
                 resolveFreeKick(
                     isHomeAttacking: isHomeInPossession,
@@ -359,7 +397,7 @@ public struct MatchEngine {
                     minute: minute,
                     events: &events
                 )
-            } else if eventRoll < 18.0 {
+            } else if eventRoll < foulThreshold {
                 // Foul and Disciplinary check
                 resolveFoul(
                     isHomeTeamFouling: !isHomeInPossession,
@@ -382,7 +420,7 @@ public struct MatchEngine {
                     minute: minute,
                     events: &events
                 )
-            } else if eventRoll < 19.5 {
+            } else if eventRoll < injuryThreshold {
                 // In-match injury roll
                 checkInMatchInjury(
                     homeActive: &homeActive,
@@ -1002,10 +1040,12 @@ public struct MatchEngine {
                 if isHomeTeamFouling {
                     homeActive[foulerIdx].yellowCards += 1
                     homeActive[foulerIdx].isSentOff = true
+                    homeActive[foulerIdx].isSecondYellow = true
                     homeActive[foulerIdx].currentRating = max(4.0, homeActive[foulerIdx].currentRating - 1.2)
                 } else {
                     awayActive[foulerIdx].yellowCards += 1
                     awayActive[foulerIdx].isSentOff = true
+                    awayActive[foulerIdx].isSecondYellow = true
                     awayActive[foulerIdx].currentRating = max(4.0, awayActive[foulerIdx].currentRating - 1.2)
                 }
 
@@ -1353,6 +1393,7 @@ public struct MatchEngine {
     
     // MARK: - Substitutions
     
+    @discardableResult
     private static func tryPerformSubstitution(
         activePlayers: inout [ActiveMatchPlayer],
         bench: inout [Player],
@@ -1361,17 +1402,18 @@ public struct MatchEngine {
         club: Club,
         isHome: Bool,
         minute: Int,
+        fatigueThreshold: Double,
         events: inout [MatchEvent],
         departed: inout [ActiveMatchPlayer]
-    ) {
-        guard subsUsed < maxSubs && !bench.isEmpty else { return }
+    ) -> Bool {
+        guard subsUsed < maxSubs && !bench.isEmpty else { return false }
         
         // Find most fatigued starter (excluding GK unless injured)
         let candidates = activePlayers.enumerated().filter { _, ap in
             !ap.isSentOff && !ap.isSubstitutedOut && ap.player.primaryPosition != .GK
         }
         guard let (outIdx, playerToSub) = candidates.max(by: { $0.1.currentFatigue < $1.1.currentFatigue }),
-              playerToSub.currentFatigue > 60.0 else { return }
+              playerToSub.currentFatigue > fatigueThreshold else { return false }
         
         // Find compatible player on bench
         let cat = playerToSub.player.primaryPosition.category
@@ -1404,6 +1446,7 @@ public struct MatchEngine {
                 isHomeTeam: isHome
             )
         )
+        return true
     }
     
     // MARK: - In-Match Injury Check
@@ -1485,8 +1528,11 @@ public struct MatchEngine {
         for ap in activePlayers {
             if var p = club.player(withId: ap.player.id) {
                 let isMotm = (p.id == motmId)
-                let gotYellow = (ap.yellowCards >= 1)
-                let gotRed = ap.isSentOff
+                // A second bookable offence already includes the first yellow in
+                // `yellowCards`; it must not be re-counted toward accumulation.
+                let gotYellow = (ap.yellowCards == 1 && !ap.isSentOff)
+                let gotSecondYellow = ap.isSecondYellow
+                let gotRed = (ap.isSentOff && !ap.isSecondYellow)
                 
                 p.recordMatch(
                     rating: (ap.currentRating * 10).rounded() / 10,
@@ -1495,6 +1541,7 @@ public struct MatchEngine {
                     assists: ap.assists,
                     yellowCard: gotYellow,
                     redCard: gotRed,
+                    secondYellow: gotSecondYellow,
                     cleanSheet: isCleanSheet,
                     isMotm: isMotm
                 )

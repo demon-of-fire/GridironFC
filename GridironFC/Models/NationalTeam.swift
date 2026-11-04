@@ -54,6 +54,9 @@ public struct NationalTeam: Codable, Identifiable, Hashable {
     public var fifaRanking: Int?
     public var coach: String?
     public var players: [Player]
+    /// Players the user has called up as national-team manager. When empty the
+    /// strongest available eleven is selected automatically.
+    public var selectedPlayerIds: [UUID]?
 
     public init(
         id: String,
@@ -62,7 +65,8 @@ public struct NationalTeam: Codable, Identifiable, Hashable {
         confederation: Confederation,
         fifaRanking: Int? = nil,
         coach: String? = nil,
-        players: [Player] = []
+        players: [Player] = [],
+        selectedPlayerIds: [UUID]? = nil
     ) {
         self.id = id
         self.name = name
@@ -71,11 +75,21 @@ public struct NationalTeam: Codable, Identifiable, Hashable {
         self.fifaRanking = fifaRanking
         self.coach = coach
         self.players = players
+        self.selectedPlayerIds = selectedPlayerIds
     }
 
-    /// Best eleven by overall rating (used to score matches).
+    /// Best eleven by overall rating, restricted to the manager's call-ups when
+    /// a valid selection exists.
     public var bestEleven: [Player] {
-        Array(players.sorted { $0.overall > $1.overall }.prefix(11))
+        let calledUp: [Player]
+        if let ids = selectedPlayerIds, !ids.isEmpty {
+            let idSet = Set(ids)
+            let selected = players.filter { idSet.contains($0.id) }
+            calledUp = selected.isEmpty ? players : selected
+        } else {
+            calledUp = players
+        }
+        return Array(calledUp.sorted { $0.overall > $1.overall }.prefix(11))
     }
 
     /// Mean overall of the best eleven.

@@ -207,6 +207,7 @@ public struct Player: Codable, Identifiable, Hashable {
         assists: Int = 0,
         yellowCard: Bool = false,
         redCard: Bool = false,
+        secondYellow: Bool = false,
         cleanSheet: Bool = false,
         isMotm: Bool = false
     ) {
@@ -243,6 +244,11 @@ public struct Player: Codable, Identifiable, Hashable {
         if redCard {
             seasonStats.redCards += 1
             suspendedMatches += 3
+        } else if secondYellow {
+            // Dismissal for a second bookable offence: a one-match ban, and the
+            // two cautions in the same match do not count toward accumulation.
+            seasonStats.redCards += 1
+            suspendedMatches += 1
         }
         
         // Morale impact from match performance
