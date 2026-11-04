@@ -22,6 +22,10 @@ public struct MatchEngine {
         /// Assistant-manager substitution policy for this fixture.
         public var autoSubTiming: MatchSettings.AutoSubTiming
         public var autoSubAggression: MatchSettings.AutoSubAggression
+        /// Small strength multiplier from the manager's coaching attributes.
+        /// 1.0 means no influence (AI clubs and owner-mode sides).
+        public var homeManagerBoost: Double
+        public var awayManagerBoost: Double
         
         public init(
             neutralVenue: Bool = false,
@@ -30,7 +34,9 @@ public struct MatchEngine {
             date: String = "2024-09-01",
             isKnockout: Bool = false,
             autoSubTiming: MatchSettings.AutoSubTiming = .secondHalf,
-            autoSubAggression: MatchSettings.AutoSubAggression = .balanced
+            autoSubAggression: MatchSettings.AutoSubAggression = .balanced,
+            homeManagerBoost: Double = 1.0,
+            awayManagerBoost: Double = 1.0
         ) {
             self.neutralVenue = neutralVenue
             self.matchWeek = matchWeek
@@ -39,6 +45,8 @@ public struct MatchEngine {
             self.isKnockout = isKnockout
             self.autoSubTiming = autoSubTiming
             self.autoSubAggression = autoSubAggression
+            self.homeManagerBoost = homeManagerBoost
+            self.awayManagerBoost = awayManagerBoost
         }
     }
     
@@ -266,13 +274,15 @@ public struct MatchEngine {
                 activePlayers: homeActive,
                 tactics: homeClub.tactics,
                 isHome: true,
-                neutralVenue: config.neutralVenue
+                neutralVenue: config.neutralVenue,
+                managerBoost: config.homeManagerBoost
             )
             let awayStrength = calculateTeamStrength(
                 activePlayers: awayActive,
                 tactics: awayClub.tactics,
                 isHome: false,
-                neutralVenue: config.neutralVenue
+                neutralVenue: config.neutralVenue,
+                managerBoost: config.awayManagerBoost
             )
             
             // Possession allocation for this minute. Clamp so a stronger side cannot
@@ -1325,7 +1335,8 @@ public struct MatchEngine {
         activePlayers: [ActiveMatchPlayer],
         tactics: Tactics,
         isHome: Bool,
-        neutralVenue: Bool
+        neutralVenue: Bool,
+        managerBoost: Double
     ) -> Double {
         var baseStrength = 0.0
         var count = 0
@@ -1351,6 +1362,10 @@ public struct MatchEngine {
         // Formation shape shapes threat (more forwards = more attacking bite).
         total *= tactics.formation.attackingBias
         
+        // Managerial coaching quality gives the user's side a small edge (or
+        // handicap); AI clubs and owner-mode teams pass 1.0.
+        total *= max(0.94, min(1.06, managerBoost))
+
         // Home advantage (~8% boost unless neutral venue)
         if isHome && !neutralVenue {
             total *= 1.08

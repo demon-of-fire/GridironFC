@@ -496,10 +496,16 @@ public final class GameState: Codable {
             }
         }
         
-        // 2. Weekly player fitness recovery & sharpness decay
+        // 2. Weekly player fitness recovery & sharpness decay. Medical facility
+        // quality now speeds rehabilitation and improves the fitness players
+        // return with after injury.
         for clubIdx in 0..<clubs.count {
-            for playerIdx in 0..<clubs[clubIdx].players.count {
-                clubs[clubIdx].players[playerIdx].advanceWeekRecovery()
+            InjuryEngine.processWeeklyRecovery(
+                players: &clubs[clubIdx].players,
+                physioQuality: clubs[clubIdx].medicalFacilityLevel
+            )
+            for playerIdx in clubs[clubIdx].players.indices {
+                clubs[clubIdx].players[playerIdx].sharpness = max(20.0, clubs[clubIdx].players[playerIdx].sharpness - 4.0)
             }
             // Weekly financial accounting. Home clubs bank gate receipts scaled
             // by the calibre of the visiting side.
@@ -720,6 +726,17 @@ public final class GameState: Codable {
     }
     
     // MARK: - Match Engine Simulation
+
+    /// Small strength multiplier derived from the manager's coaching attributes.
+    /// A 55-rated coach is neutral; elite attributes add up to 4%, weak ones
+    /// deduct up to 4%. Only manager careers are affected.
+    private var managerMatchBoost: Double {
+        guard gameMode == .manageClub else { return 1.0 }
+        let quality = Double(manager.tactical) * 0.4
+            + Double(manager.attacking) * 0.3
+            + Double(manager.defending) * 0.3
+        return 1.0 + max(-0.04, min(0.04, (quality - 55.0) / 1100.0))
+    }
     
     /// Simulates a single fixture by delegating to the shared `MatchEngine`, then
     /// writes the updated rosters (fatigue, injuries, stats) and result back into world state.
@@ -749,7 +766,9 @@ public final class GameState: Codable {
             date: fixture.date,
             isKnockout: false,
             autoSubTiming: matchSettings.autoSubTiming,
-            autoSubAggression: matchSettings.autoSubAggression
+            autoSubAggression: matchSettings.autoSubAggression,
+            homeManagerBoost: fixture.homeClubId == userClubId ? managerMatchBoost : 1.0,
+            awayManagerBoost: fixture.awayClubId == userClubId ? managerMatchBoost : 1.0
         )
         
         let result = MatchEngine.simulateFullMatch(home: &homeClub, away: &awayClub, config: config)

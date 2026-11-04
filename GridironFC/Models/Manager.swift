@@ -125,9 +125,8 @@ public enum ManagerBackground: String, Codable, CaseIterable, Identifiable, Hash
 
 // MARK: - Manager Profile
 
-/// The user's managerial persona. Purely cosmetic + reputation tracking; the
-/// match engine does not yet weight coaching attributes, but they are surfaced
-/// on the profile for flavour and future use.
+/// The user's managerial persona. Coaching attributes feed a small match-strength
+/// modifier for manager careers; reputation drives job offers and career history.
 public struct ManagerProfile: Codable, Hashable {
     public var firstName: String
     public var lastName: String
