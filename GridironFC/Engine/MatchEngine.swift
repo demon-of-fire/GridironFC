@@ -138,6 +138,13 @@ public struct MatchEngine {
         var homeSubsUsed = 0
         var awaySubsUsed = 0
         let maxSubs = 5
+
+        // Only the user's club follows the user's assistant-manager policy; AI
+        // clubs keep the default rotation behaviour.
+        let homeSubTiming = homeClub.isUserClub ? config.autoSubTiming : MatchSettings.AutoSubTiming.secondHalf
+        let awaySubTiming = awayClub.isUserClub ? config.autoSubTiming : MatchSettings.AutoSubTiming.secondHalf
+        let homeSubAggression = homeClub.isUserClub ? config.autoSubAggression : MatchSettings.AutoSubAggression.balanced
+        let awaySubAggression = awayClub.isUserClub ? config.autoSubAggression : MatchSettings.AutoSubAggression.balanced
         
         var homeGoals = 0
         var awayGoals = 0
@@ -223,47 +230,35 @@ public struct MatchEngine {
             updateFatigue(activePlayers: &homeActive, tactics: homeClub.tactics)
             updateFatigue(activePlayers: &awayActive, tactics: awayClub.tactics)
             
-            // 3. Assistant-manager substitutions, honouring the user's settings.
-            let subWindow: ClosedRange<Int>?
-            switch config.autoSubTiming {
-            case .off: subWindow = nil
-            case .halfTime: subWindow = 45...45
-            case .secondHalf: subWindow = 58...82
-            case .throughout: subWindow = 46...85
+            // 3. Assistant-manager substitutions, honouring the user's settings
+            // for their own club only.
+            if let homeWindow = substitutionWindow(for: homeSubTiming), homeWindow.contains(minute) {
+                tryPerformSubstitution(
+                    activePlayers: &homeActive,
+                    bench: &homeBench,
+                    subsUsed: &homeSubsUsed,
+                    maxSubs: min(maxSubs, homeSubAggression.maxSubs),
+                    club: homeClub,
+                    isHome: true,
+                    minute: minute,
+                    fatigueThreshold: homeSubTiming == .halfTime ? homeSubAggression.fatigueThreshold * 0.45 : homeSubAggression.fatigueThreshold,
+                    events: &events,
+                    departed: &homeDeparted
+                )
             }
-            if let subWindow, subWindow.contains(minute) {
-                let limit = min(maxSubs, config.autoSubAggression.maxSubs)
-                let threshold = config.autoSubAggression.fatigueThreshold
-                // At half-time the assistant can use the interval to make every
-                // permitted change at once; otherwise one change per side per minute.
-                let attempts = config.autoSubTiming == .halfTime ? max(1, limit) : 1
-                for _ in 0..<attempts {
-                    let homeSub = tryPerformSubstitution(
-                        activePlayers: &homeActive,
-                        bench: &homeBench,
-                        subsUsed: &homeSubsUsed,
-                        maxSubs: limit,
-                        club: homeClub,
-                        isHome: true,
-                        minute: minute,
-                        fatigueThreshold: threshold,
-                        events: &events,
-                        departed: &homeDeparted
-                    )
-                    let awaySub = tryPerformSubstitution(
-                        activePlayers: &awayActive,
-                        bench: &awayBench,
-                        subsUsed: &awaySubsUsed,
-                        maxSubs: limit,
-                        club: awayClub,
-                        isHome: false,
-                        minute: minute,
-                        fatigueThreshold: threshold,
-                        events: &events,
-                        departed: &awayDeparted
-                    )
-                    if !homeSub && !awaySub { break }
-                }
+            if let awayWindow = substitutionWindow(for: awaySubTiming), awayWindow.contains(minute) {
+                tryPerformSubstitution(
+                    activePlayers: &awayActive,
+                    bench: &awayBench,
+                    subsUsed: &awaySubsUsed,
+                    maxSubs: min(maxSubs, awaySubAggression.maxSubs),
+                    club: awayClub,
+                    isHome: false,
+                    minute: minute,
+                    fatigueThreshold: awaySubTiming == .halfTime ? awaySubAggression.fatigueThreshold * 0.45 : awaySubAggression.fatigueThreshold,
+                    events: &events,
+                    departed: &awayDeparted
+                )
             }
             
             // 4. Calculate relative team strengths for this minute
@@ -1386,12 +1381,27 @@ public struct MatchEngine {
             activePlayers[idx].minutesPlayed += 1
             
             let staminaStat = Double(activePlayers[idx].player.attributes.stamina)
-            let baseDrain = (0.28 - (staminaStat * 0.0015)) * pressingDrain
+            // A full match should leave even a very fit player around 60-75%
+            // in-match fatigue, so late-game exhaustion and the assistant's
+            // rotation thresholds (58-78) are actually reachable.
+            let baseDrain = (1.50 - (staminaStat * 0.008)) * pressingDrain
             activePlayers[idx].currentFatigue = min(100.0, activePlayers[idx].currentFatigue + baseDrain)
         }
     }
     
     // MARK: - Substitutions
+
+    /// Minute range in which the assistant considers substitutions. "At
+    /// half-time" begins at the interval and covers the early second half;
+    /// fatigue-based thresholds only become reachable after the break.
+    private static func substitutionWindow(for timing: MatchSettings.AutoSubTiming) -> ClosedRange<Int>? {
+        switch timing {
+        case .off: return nil
+        case .halfTime: return 45...45
+        case .secondHalf: return 58...82
+        case .throughout: return 46...85
+        }
+    }
     
     @discardableResult
     private static func tryPerformSubstitution(

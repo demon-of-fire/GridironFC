@@ -2048,8 +2048,9 @@ public struct TacticsView: View {
         guard let userClub = gameState.userClub else { return }
         var updated = userClub
         mutate(&updated.tactics)
-        gameState.clubs.removeAll { $0.id == updated.id }
-        gameState.clubs.append(updated)
+        if let idx = gameState.clubs.firstIndex(where: { $0.id == updated.id }) {
+            gameState.clubs[idx] = updated
+        }
     }
     
     public var body: some View {
@@ -2062,8 +2063,9 @@ public struct TacticsView: View {
                             var updated = userClub
                             updated.tactics.formation = newPreset
                             updated.autoPickStartingXI()
-                            gameState.clubs.removeAll { $0.id == updated.id }
-                            gameState.clubs.append(updated)
+                            if let idx = gameState.clubs.firstIndex(where: { $0.id == updated.id }) {
+                                gameState.clubs[idx] = updated
+                            }
                         }
                     )) {
                         ForEach(FormationPreset.allCases) { preset in
@@ -2151,8 +2153,9 @@ public struct TacticsView: View {
                     Button(action: {
                         var updated = userClub
                         updated.autoPickStartingXI()
-                        gameState.clubs.removeAll { $0.id == updated.id }
-                        gameState.clubs.append(updated)
+                        if let idx = gameState.clubs.firstIndex(where: { $0.id == updated.id }) {
+                            gameState.clubs[idx] = updated
+                        }
                     }) {
                         Text("Auto-Pick Optimal XI")
                             .frame(maxWidth: .infinity)
