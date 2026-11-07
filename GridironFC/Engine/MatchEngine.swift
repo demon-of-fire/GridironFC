@@ -1492,7 +1492,7 @@ public struct MatchEngine {
                 !homeActive[$0].isSentOff && !homeActive[$0].isSubstitutedOut
             }
             guard let idx = candidates.randomElement() else { return }
-            if let injury = InjuryEngine.checkForInjury(player: homeActive[idx].player, matchMinute: minute, intensity: intensity) {
+            if let injury = InjuryEngine.checkForInjury(player: homeActive[idx].player, matchMinute: minute, intensity: intensity, fatigue: homeActive[idx].currentFatigue) {
                 homeActive[idx].player.injury = injury
                 let commentary = Commentary.injury(player: homeActive[idx].player, club: homeClub, minute: minute, injuryType: injury.type)
                 events.append(
@@ -1512,7 +1512,7 @@ public struct MatchEngine {
                 !awayActive[$0].isSentOff && !awayActive[$0].isSubstitutedOut
             }
             guard let idx = candidates.randomElement() else { return }
-            if let injury = InjuryEngine.checkForInjury(player: awayActive[idx].player, matchMinute: minute, intensity: intensity) {
+            if let injury = InjuryEngine.checkForInjury(player: awayActive[idx].player, matchMinute: minute, intensity: intensity, fatigue: awayActive[idx].currentFatigue) {
                 awayActive[idx].player.injury = injury
                 let commentary = Commentary.injury(player: awayActive[idx].player, club: awayClub, minute: minute, injuryType: injury.type)
                 events.append(
@@ -1536,7 +1536,8 @@ public struct MatchEngine {
         homeActive: [ActiveMatchPlayer],
         awayActive: [ActiveMatchPlayer]
     ) -> ActiveMatchPlayer? {
-        let all = homeActive + awayActive
+        // A dismissed player cannot be named man of the match.
+        let all = (homeActive + awayActive).filter { !$0.isSentOff }
         return all.max(by: { $0.currentRating < $1.currentRating })
     }
     

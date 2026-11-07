@@ -126,6 +126,9 @@ public final class GameState: Codable {
     public var europeanCompetitions: [EuropeanCompetitionState]
     /// European matchweek pointer; advances alongside the domestic calendar.
     public var europeanMatchweek: Int
+    /// Club ids that earned a European place from last season's league
+    /// positions, strongest first. Rebuilt at the end of every campaign.
+    public var europeanQualifiers: [UUID]
 
     // International management (national teams + tournaments)
     public var nationalTeams: [NationalTeam]
@@ -160,6 +163,7 @@ public final class GameState: Codable {
         teamTalkAppliedWeek: Int? = nil,
         europeanCompetitions: [EuropeanCompetitionState] = [],
         europeanMatchweek: Int = 0,
+        europeanQualifiers: [UUID] = [],
         nationalTeams: [NationalTeam] = [],
         internationalTournaments: [InternationalTournament.State] = [],
         managedNationalTeamId: String? = nil
@@ -188,6 +192,7 @@ public final class GameState: Codable {
         self.teamTalkAppliedWeek = teamTalkAppliedWeek
         self.europeanCompetitions = europeanCompetitions
         self.europeanMatchweek = europeanMatchweek
+        self.europeanQualifiers = europeanQualifiers
         self.nationalTeams = nationalTeams
         self.internationalTournaments = internationalTournaments
         self.managedNationalTeamId = managedNationalTeamId
@@ -223,6 +228,7 @@ public final class GameState: Codable {
         teamTalkAppliedWeek = other.teamTalkAppliedWeek
         europeanCompetitions = other.europeanCompetitions
         europeanMatchweek = other.europeanMatchweek
+        europeanQualifiers = other.europeanQualifiers
         nationalTeams = other.nationalTeams
         internationalTournaments = other.internationalTournaments
         managedNationalTeamId = other.managedNationalTeamId
@@ -272,6 +278,7 @@ public final class GameState: Codable {
         teamTalkAppliedWeek = nil
         europeanCompetitions = EuropeanCompetitionBuilder.build(from: freshClubs)
         europeanMatchweek = 0
+        europeanQualifiers = []
         nationalTeams = DataLoader.loadNationalTeams()
         internationalTournaments = []
         managedNationalTeamId = nil
@@ -488,12 +495,12 @@ public final class GameState: Codable {
     /// Advances the in-game week: simulates all pending matchweek matches, recovers fitness,
     /// runs AI transfer evaluation, updates financial balances, and checks promotion/relegation.
     public func advanceWeek() {
-        // 1. Simulate all unplayed fixtures of the current matchweek
-        let currentWeekFixtures = season.fixtures(forWeek: season.currentWeek).filter { !$0.isPlayed }
-        for fixture in currentWeekFixtures {
-            if let idx = season.fixtures.firstIndex(where: { $0.id == fixture.id }) {
-                simulateMatch(fixture: &season.fixtures[idx])
-            }
+        // 1. Simulate every unplayed fixture that is due this week or earlier.
+        // A skipped matchweek must not leave results missing when the calendar
+        // moves on, otherwise final tables and season completion are wrong.
+        for idx in season.fixtures.indices
+        where !season.fixtures[idx].isPlayed && season.fixtures[idx].matchWeek <= season.currentWeek {
+            simulateMatch(fixture: &season.fixtures[idx])
         }
         
         // 2. Weekly player fitness recovery & sharpness decay. Medical facility
@@ -744,6 +751,9 @@ public final class GameState: Codable {
         guard !fixture.isPlayed else { return }
         guard let homeIdx = clubs.firstIndex(where: { $0.id == fixture.homeClubId }),
               let awayIdx = clubs.firstIndex(where: { $0.id == fixture.awayClubId }) else {
+            // A fixture whose clubs no longer exist can never be played; retire it
+            // so it cannot block the season from ever completing.
+            fixture.isPlayed = true
             return
         }
         
@@ -2121,8 +2131,9 @@ public final class GameState: Codable {
         activeMatchFixtureId = nil
         isMatchInProgress = false
 
-        // Rebuild the European competitions for the new season.
-        europeanCompetitions = EuropeanCompetitionBuilder.build(from: clubs)
+        // Rebuild the European competitions for the new season using the
+        // qualifiers earned from last season's final league positions.
+        europeanCompetitions = EuropeanCompetitionBuilder.build(from: clubs, qualifiers: europeanQualifiers)
         europeanMatchweek = 0
 
         // Refresh the international calendar so tournaments recur each campaign.
@@ -2149,9 +2160,9 @@ public final class GameState: Codable {
                 if var contract = clubs[cIdx].players[pIdx].contract {
                     contract.yearsRemaining -= 1
                     if contract.yearsRemaining <= 0 {
-                        // No contract-negotiation flow yet, so the club exercises a
-                        // one-year extension rather than deleting the player. Give
-                        // the renewal a modest raise so it is not a silent free pass.
+                        // The manager can renegotiate through the player profile;
+                        // if they have not, the club exercises a one-year option
+                        // rather than deleting the player, with a modest raise.
                         contract.yearsRemaining = 1
                         contract.wage = max(500, Int(Double(contract.wage) * 1.05))
                         if clubs[cIdx].isUserClub {
@@ -2273,6 +2284,24 @@ public final class GameState: Codable {
         for league in leagues {
             finalTables[league.tier] = standings(for: league)
         }
+
+        // European places are earned on the pitch. Rank every top-flight
+        // qualifier by reputation and finishing position; the strongest fill
+        // the Champions League first, then the Europa and Conference Leagues.
+        // This replaces the old purely reputation-based seeding so a league
+        // title (or any qualifying finish) actually books a European place.
+        var qualifierPool: [(clubId: UUID, score: Double)] = []
+        for league in leagues where league.tier.isTopFlight {
+            guard let table = finalTables[league.tier] else { continue }
+            for (index, standing) in table.prefix(league.tier.europeanSlots).enumerated() {
+                guard let qualifiedClub = club(withId: standing.clubId) else { continue }
+                let positionWeight = 1.0 - (Double(index) * 0.06)
+                qualifierPool.append((standing.clubId, qualifiedClub.reputation * positionWeight))
+            }
+        }
+        europeanQualifiers = qualifierPool
+            .sorted { $0.score > $1.score }
+            .map { $0.clubId }
 
         // Snapshot the user's campaign before promotions and relegations change
         // their leagueTier. `recordManagerSeason` needs the club/tier they
@@ -2804,6 +2833,7 @@ public final class GameState: Codable {
         case teamTalkAppliedWeek
         case europeanCompetitions
         case europeanMatchweek
+        case europeanQualifiers
         case nationalTeams
         case internationalTournaments
         case managedNationalTeamId
@@ -2835,6 +2865,7 @@ public final class GameState: Codable {
         try container.encodeIfPresent(teamTalkAppliedWeek, forKey: .teamTalkAppliedWeek)
         try container.encode(europeanCompetitions, forKey: .europeanCompetitions)
         try container.encode(europeanMatchweek, forKey: .europeanMatchweek)
+        try container.encode(europeanQualifiers, forKey: .europeanQualifiers)
         try container.encode(nationalTeams, forKey: .nationalTeams)
         try container.encode(internationalTournaments, forKey: .internationalTournaments)
         try container.encodeIfPresent(managedNationalTeamId, forKey: .managedNationalTeamId)
@@ -2866,6 +2897,7 @@ public final class GameState: Codable {
         self.teamTalkAppliedWeek = try container.decodeIfPresent(Int.self, forKey: .teamTalkAppliedWeek)
         self.europeanCompetitions = try container.decodeIfPresent([EuropeanCompetitionState].self, forKey: .europeanCompetitions) ?? []
         self.europeanMatchweek = try container.decodeIfPresent(Int.self, forKey: .europeanMatchweek) ?? 0
+        self.europeanQualifiers = try container.decodeIfPresent([UUID].self, forKey: .europeanQualifiers) ?? []
         self.nationalTeams = try container.decodeIfPresent([NationalTeam].self, forKey: .nationalTeams) ?? []
         self.internationalTournaments = try container.decodeIfPresent([InternationalTournament.State].self, forKey: .internationalTournaments) ?? []
         self.managedNationalTeamId = try container.decodeIfPresent(String.self, forKey: .managedNationalTeamId)

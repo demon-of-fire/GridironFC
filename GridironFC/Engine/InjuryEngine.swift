@@ -14,10 +14,13 @@ public struct InjuryEngine {
     // MARK: - In-Match Injury Assessment
     
     /// Evaluates probability of a matchday injury based on player fitness, age, fatigue, and tactical intensity.
+    /// - Parameter fatigue: accumulated in-match fatigue (0-100). Late-game
+    ///   fatigue compounds the risk of soft-tissue injury.
     public static func checkForInjury(
         player: Player,
         matchMinute: Int,
-        intensity: Double = 1.0
+        intensity: Double = 1.0,
+        fatigue: Double = 0.0
     ) -> Injury? {
         // Base injury chance per event opportunity (~0.4% per check)
         var baseProbability = 0.004
@@ -29,6 +32,15 @@ public struct InjuryEngine {
             baseProbability *= 2.2
         } else if player.matchFitness < 85.0 {
             baseProbability *= 1.3
+        }
+
+        // 1b. In-match fatigue: tiring legs are far more injury-prone.
+        if fatigue >= 80 {
+            baseProbability *= 2.2
+        } else if fatigue >= 60 {
+            baseProbability *= 1.6
+        } else if fatigue >= 40 {
+            baseProbability *= 1.2
         }
         
         // 2. Age factor: older bodies are more susceptible to muscle strains

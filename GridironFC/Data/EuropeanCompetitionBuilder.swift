@@ -32,7 +32,10 @@ public enum EuropeanCompetitionBuilder {
 
     /// Builds all three European competitions from the loaded clubs, seeding real
     /// participants first and padding with the strongest eligible top-flight clubs.
-    public static func build(from clubs: [Club]) -> [EuropeanCompetitionState] {
+    /// - Parameter qualifiers: Clubs that earned a place from last season's league
+    ///   positions, strongest first. When supplied they take precedence over the
+    ///   static seed list, so domestic performance actually decides qualification.
+    public static func build(from clubs: [Club], qualifiers: [UUID] = []) -> [EuropeanCompetitionState] {
         let dataFile = loadParticipantData()
         var results: [EuropeanCompetitionState] = []
         var alreadyEntered = Set<UUID>()
@@ -41,6 +44,17 @@ public enum EuropeanCompetitionBuilder {
             let seedNames = dataFile?.competitions.first(where: { $0.key == competition.rawValue })?.clubNames ?? []
             var participants: [UUID] = []
             var usedNames = Set<String>()
+            let target = competition.leaguePhaseCount
+
+            // 0. Clubs that qualified through league position, strongest first.
+            //    A brand-new save has no qualifiers yet and falls back to seeds.
+            for id in qualifiers where participants.count < target {
+                guard !alreadyEntered.contains(id) else { continue }
+                guard let club = clubs.first(where: { $0.id == id }) else { continue }
+                guard !usedNames.contains(club.name) else { continue }
+                participants.append(id)
+                usedNames.insert(club.name)
+            }
 
             // 1. Real seeds, matched to loaded clubs by normalised name. A club
             //    already entered in a stronger competition cannot be seeded twice.
@@ -57,7 +71,6 @@ public enum EuropeanCompetitionBuilder {
 
             // 2. Pad with the strongest remaining clubs from top flights, ignoring any
             //    already entered in a stronger competition.
-            let target = competition.leaguePhaseCount
             if participants.count < target {
                 let eligible = clubs
                     .filter { $0.leagueTier.isTopFlight && !usedNames.contains($0.name) && !alreadyEntered.contains($0.id) }

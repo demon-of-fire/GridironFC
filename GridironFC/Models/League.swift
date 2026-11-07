@@ -83,8 +83,12 @@ public struct Season: Codable, Hashable {
         return fixtures.map { $0.matchWeek }.max() ?? 38
     }
     
+    /// A campaign is complete only once the calendar has run past the final
+    /// matchweek *and* every fixture has a result. Checking the fixtures too
+    /// stops a season from ending with unplayed matches (which would leave
+    /// final tables short of results) when the week counter races ahead.
     public var isSeasonFinished: Bool {
-        return currentWeek > totalMatchWeeks
+        return currentWeek > totalMatchWeeks && fixtures.allSatisfy { $0.isPlayed }
     }
 }
 
